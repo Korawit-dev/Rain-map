@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Open-Meteo Pro Weather Dashboard</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+
+    <style>
+        /* BASE & LAYOUT */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; background-color: #e9eef2; color: #333; }
+        .container { max-width: 1400px; margin: 20px auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        h1 { color: #007bff; text-align: center; margin-bottom: 20px; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+        
+        /* CONTROLS */
+        .controls { 
+            margin-bottom: 25px; padding: 20px; border-radius: 8px; 
+            background-color: #f0f8ff; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        .controls label { font-weight: bold; color: #0056b3; }
+        .controls textarea { min-height: 80px; padding: 10px; border: 1px solid #007bff; border-radius: 6px; font-family: monospace; }
+        .controls button { padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; transition: background-color 0.3s; font-size: 1.1em; }
+        .controls button:hover { background-color: #0056b3; }
+        
+        /* MAP */
+        #map { height: 350px; margin-bottom: 25px; border-radius: 8px; border: 1px solid #ddd; }
+        
+        /* TABS */
+        .tab-buttons { display: flex; overflow-x: auto; margin-bottom: 15px; border-bottom: 3px solid #ccc; background-color: #f8f8f8; border-radius: 6px 6px 0 0; }
+        .tab-button { background-color: transparent; padding: 12px 20px; cursor: pointer; border: none; outline: none; transition: background-color 0.3s, color 0.3s; margin-right: 2px; font-weight: 600; }
+        .tab-button.active { background-color: #007bff; color: white; border-radius: 4px 4px 0 0; border-bottom: none; }
+        .tab-content { display: none; padding: 15px 0; }
+        .tab-content.active { display: block; }
+
+        /* FORECAST CARDS (New UI Element) */
+        .hourly-scroll {
+            overflow-x: auto;
+            white-space: nowrap;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #ddd;
+        }
+        .hourly-card {
+            display: inline-block;
+            width: 140px; /* จำกัดความกว้างการ์ด */
+            margin-right: 15px;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #fff;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            text-align: center;
+            vertical-align: top;
+            transition: transform 0.2s;
+        }
+        .hourly-card:hover { transform: translateY(-5px); }
+        .card-time { font-weight: bold; color: #0056b3; margin-bottom: 5px; font-size: 0.9em; }
+        .card-icon i { font-size: 2.5em; color: #ffc107; margin: 5px 0; }
+        .card-temp { font-size: 1.5em; font-weight: bold; color: #dc3545; }
+        .card-rain { font-size: 0.8em; color: #28a745; }
+
+        /* RESPONSIVE TABLE (New Design) */
+        .table-wrapper { 
+            max-height: 400px; overflow-y: auto; 
+            border: 1px solid #ddd; border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; font-size: 0.85em; }
+        th { background-color: #007bff; color: white; position: sticky; top: 0; font-size: 0.9em; }
+        
+        /* Mobile Optimization: ทำให้ตารางไม่กว้างเกินไป โดยซ่อนคอลัมน์ที่มีรายละเอียดมาก */
+        @media (max-width: 768px) {
+            .container { padding: 10px; margin: 10px; }
+            th:nth-child(5), td:nth-child(5), /* จุดน้ำค้าง */
+            th:nth-child(7), td:nth-child(7), /* ความกดอากาศ */
+            th:nth-child(9), td:nth-child(9) { /* ลมกระโชก */
+                display: none;
+            }
+        }
+        
+        #loading { text-align: center; color: #888; margin-top: 20px; display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>✨ Open-Meteo Pro Weather Dashboard</h1>
+
+        <div class="controls">
+            <label for="coordinateInput">ป้อนพิกัด (Lat, Lon, ชื่อเมือง - แต่ละบรรทัด)</label>
+            <textarea id="coordinateInput">13.75, 100.51, กรุงเทพมหานคร
+14.35, 100.57, อยุธยา
+12.93, 100.89, พัทยา</textarea>
+            <div class="example-text">ตัวอย่าง: **13.75, 100.51, กรุงเทพมหานคร**</div>
+            
+            <button onclick="startWeatherFetch()"><i class="fas fa-sync-alt"></i> ดึงข้อมูลสภาพอากาศ</button>
+        </div>
+        
+        <div id="map"></div>
+        
+        <div id="loading">...กำลังดึงข้อมูลสภาพอากาศ...</div>
+
+        <div class="tab-buttons" id="tabButtons"></div>
+
+        <div id="tabContents"></div>
+    </div>
+
+    <script>
+        // 1. ตัวแปรสภาพอากาศที่ต้องการดึง
+        const hourlyVariables = [
+            'temperature_2m', 'apparent_temperature', 'relative_humidity_2m', 'dew_point_2m',
+            'precipitation', 'rain', 'weather_code',
+            'pressure_msl', 
+            'cloud_cover',
+            'wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m'
+        ].join(',');
+
+        // 2. การสร้างแผนที่ Leaflet
+        const map = L.map('map').setView([13.75, 100.51], 9);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        let markers = []; 
+        let currentPoints = []; 
+
+        // *** WMO Code to Icon/Description Mappings ***
+        function getWeatherIcon(code) {
+            // Ref: https://open-meteo.com/en/docs#weather-code
+            const icons = {
+                0: 'fas fa-sun', // Clear sky
+                1: 'fas fa-cloud-sun', // Mainly clear
+                2: 'fas fa-cloud-sun', // Partly cloudy
+                3: 'fas fa-cloud', // Overcast
+                45: 'fas fa-smog', // Fog
+                51: 'fas fa-cloud-showers-heavy', // Drizzle light
+                61: 'fas fa-cloud-showers-heavy', // Rain light
+                63: 'fas fa-cloud-rain', // Rain moderate
+                65: 'fas fa-cloud-showers-heavy', // Rain heavy
+                80: 'fas fa-cloud-rain', // Shower slight
+                95: 'fas fa-thunderstorm', // Thunderstorm
+                default: 'fas fa-question-circle'
+            };
+            return icons[code] || icons.default;
+        }
+
+        function getWeatherDescription(code) {
+             const descriptions = {
+                0: "ท้องฟ้าโปร่ง", 1: "ฟ้าใสเป็นส่วนใหญ่", 2: "มีเมฆบางส่วน", 3: "มีเมฆมาก/ครึ้มฟ้า",
+                45: "มีหมอก", 51: "ฝนปรอยเบา", 61: "ฝนตกเบา", 63: "ฝนตกปานกลาง",
+                65: "ฝนตกหนัก", 80: "ฝนอาบฟ้าเบา", 95: "พายุฝนฟ้าคะนอง",
+            };
+            return descriptions[code] || `รหัส: ${code}`;
+        }
+        // *******************************************
+
+
+        // *** ฟังก์ชันแปลงข้อความจาก textarea เป็น Array ของจุดพิกัด (เหมือนเดิม) ***
+        function parseCoordinates() {
+            const input = document.getElementById('coordinateInput').value;
+            const lines = input.split('\n');
+            const points = [];
+            let index = 1;
+
+            lines.forEach(line => {
+                const parts = line.split(',').map(part => part.trim());
+                if (parts.length >= 2) {
+                    const lat = parseFloat(parts[0]);
+                    const lon = parseFloat(parts[1]);
+                    const name = parts[2] || `พิกัด #${index}`; 
+                    
+                    if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+                        points.push({ name: name, lat: lat, lon: lon });
+                        index++;
+                    }
+                }
+            });
+            return points;
+        }
+
+
+        // 3. ฟังก์ชันจัดการ Tab (ปรับปรุงให้ใช้ name ตรง ๆ)
+        function openCityTab(pointName) {
+            const contents = document.querySelectorAll('.tab-content');
+            const buttons = document.querySelectorAll('.tab-button');
+            const targetId = pointName.replace(/[^a-zA-Z0-9]/g, '_'); 
+
+            contents.forEach(content => content.classList.remove('active'));
+            buttons.forEach(button => button.classList.remove('active'));
+
+            document.getElementById('content-' + targetId).classList.add('active');
+            document.getElementById('button-' + targetId).classList.add('active');
+            
+            const targetPoint = currentPoints.find(p => p.name === pointName);
+            if (targetPoint) {
+                map.setView([targetPoint.lat, targetPoint.lon], 11);
+            }
+        }
+
+        // 4. ฟังก์ชันดึงข้อมูลสำหรับจุดเดียว (เหมือนเดิม)
+        async function fetchWeatherForPoint(point) {
+            const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${point.lat}&longitude=${point.lon}&hourly=${hourlyVariables}&timezone=Asia/Bangkok&temperature_unit=celsius&wind_speed_unit=kmh`;
+            
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status} for ${point.name}`);
+                }
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                console.error(`Error fetching data for ${point.name}:`, error);
+                return null;
+            }
+        }
+
+        // 5. ฟังก์ชันหลัก ดึงข้อมูลทุกจุดและแสดงผล
+        async function fetchWeatherForAllPoints(points) {
+            const loading = document.getElementById('loading');
+            const tabButtonsContainer = document.getElementById('tabButtons');
+            const tabContentsContainer = document.getElementById('tabContents');
+            
+            tabButtonsContainer.innerHTML = '';
+            tabContentsContainer.innerHTML = '';
+            markers.forEach(marker => map.removeLayer(marker)); 
+            markers = [];
+            loading.style.display = 'block';
+
+            if (points.length === 0) {
+                loading.textContent = "กรุณาป้อนพิกัดอย่างน้อย 1 จุด";
+                return;
+            }
+
+            const fetchPromises = points.map(point => fetchWeatherForPoint(point));
+            const results = await Promise.all(fetchPromises);
+
+            let firstPointName = null;
+            let bounds = []; 
+
+            results.forEach((data, index) => {
+                const point = points[index];
+                if (!firstPointName) {
+                    firstPointName = point.name;
+                }
+                
+                const safeName = point.name.replace(/[^a-zA-Z0-9]/g, '_');
+
+                if (data && data.hourly && data.hourly.time && data.hourly.time.length > 0) {
+                    
+                    // --- 5.1 สร้าง Tab Button ---
+                    const buttonId = 'button-' + safeName;
+                    const button = document.createElement('button');
+                    button.className = 'tab-button';
+                    button.id = buttonId;
+                    button.textContent = point.name;
+                    button.onclick = () => { openCityTab(point.name); };
+                    tabButtonsContainer.appendChild(button);
+
+                    // --- 5.2 สร้าง Marker บนแผนที่ ---
+                    const firstTemp = data.hourly.temperature_2m[0];
+                    const popupContent = `
+                        <strong>${point.name}</strong><br>
+                        อุณหภูมิปัจจุบัน: ${firstTemp.toFixed(1)} °C<br>
+                        <small>คลิกที่แท็บเพื่อดูรายละเอียด</small>
+                    `;
+                    const marker = L.marker([point.lat, point.lon]).addTo(map)
+                        .bindPopup(popupContent);
+                    markers.push(marker);
+                    bounds.push([point.lat, point.lon]);
+
+                    // --- 5.3 สร้าง Tab Content (สรุปการ์ด + ตารางละเอียด) ---
+                    const contentId = 'content-' + safeName;
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'tab-content';
+                    contentDiv.id = contentId;
+                    
+                    let cardHTML = '<div class="hourly-scroll">';
+                    let tableBodyHTML = '';
+                    
+                    // Populate Cards and Table Rows (แสดงเฉพาะ 72 ชั่วโมงแรกในตาราง)
+                    for (let i = 0; i < data.hourly.time.length; i++) {
+                        const time = new Date(data.hourly.time[i]);
+                        const isToday = time.toDateString() === new Date().toDateString();
+                        const timeDisplay = time.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+                        const dateDisplay = time.toLocaleDateString('th-TH', { month: 'short', day: 'numeric' });
+                        
+                        const temp = data.hourly.temperature_2m[i].toFixed(1);
+                        const feels = data.hourly.apparent_temperature[i].toFixed(1);
+                        const rain = data.hourly.precipitation[i].toFixed(1);
+                        const humidity = data.hourly.relative_humidity_2m[i];
+                        const wind = data.hourly.wind_speed_10m[i].toFixed(1);
+                        const windDir = data.hourly.wind_direction_10m[i];
+                        const pressure = data.hourly.pressure_msl[i].toFixed(1);
+                        const weatherCode = data.hourly.weather_code[i];
+                        const icon = getWeatherIcon(weatherCode);
+                        const description = getWeatherDescription(weatherCode);
+
+                        // ** 1. สร้าง Card สรุป (ทุกชั่วโมง)**
+                        cardHTML += `
+                            <div class="hourly-card">
+                                <div class="card-time">${isToday ? timeDisplay : dateDisplay}</div>
+                                <div class="card-icon"><i class="${icon}"></i></div>
+                                <div class="card-temp">${temp} °C</div>
+                                <div class="card-rain">ฝน: ${rain} mm</div>
+                                <div class="card-description" style="font-size:0.8em;">${description}</div>
+                            </div>
+                        `;
+
+                        // ** 2. สร้าง Row ตารางละเอียด (จำกัดแค่ 72 ชั่วโมงแรก หรือ 3 วัน)**
+                        if (i < 72) {
+                            tableBodyHTML += `
+                                <tr>
+                                    <td>${time.toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}</td>
+                                    <td><i class="${icon}" style="color: ${rain > 0 ? '#007bff' : '#ffc107'};"></i> ${description}</td>
+                                    <td>${temp} °C / ${feels} °C</td>
+                                    <td>${humidity} %</td>
+                                    <td>${rain} mm</td>
+                                    <td>${wind} km/h (${windDir}°)</td>
+                                    <td>${pressure} hPa</td>
+                                    <td class="desktop-only">${data.hourly.dew_point_2m[i].toFixed(1)} °C</td>
+                                    <td class="desktop-only">${data.hourly.wind_gusts_10m[i].toFixed(1)} km/h</td>
+                                </tr>
+                            `;
+                        }
+                    }
+                    cardHTML += '</div>'; // End hourly-scroll
+
+                    contentDiv.innerHTML = `
+                        <h2>${point.name} (Lat: ${point.lat.toFixed(4)}, Lon: ${point.lon.toFixed(4)})</h2>
+                        
+                        <h3>พยากรณ์รายชั่วโมง (สรุป)</h3>
+                        ${cardHTML}
+
+                        <h3>ตารางรายละเอียด (72 ชั่วโมงถัดไป)</h3>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>เวลา/วันที่</th>
+                                        <th>สภาพอากาศ</th>
+                                        <th>อุณหภูมิ (รู้สึก)</th>
+                                        <th>ความชื้น (%)</th>
+                                        <th>ฝน (mm)</th>
+                                        <th>ลม (km/h, °)</th>
+                                        <th>ความกดอากาศ (hPa)</th>
+                                        <th class="desktop-only">จุดน้ำค้าง (°C)</th>
+                                        <th class="desktop-only">ลมกระโชก (km/h)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${tableBodyHTML}</tbody>
+                            </table>
+                        </div>
+                    `;
+                    tabContentsContainer.appendChild(contentDiv);
+
+                } else {
+                    const errorDiv = document.createElement('div');
+                    errorDiv.textContent = `🚫 ไม่สามารถดึงข้อมูลสำหรับ ${point.name} (Lat: ${point.lat.toFixed(4)}, Lon: ${point.lon.toFixed(4)})`;
+                    tabContentsContainer.appendChild(errorDiv);
+                }
+            });
+
+            loading.style.display = 'none';
+
+            // เปิด Tab แรกอัตโนมัติและซูมแผนที่
+            if (firstPointName) {
+                openCityTab(firstPointName);
+                if (bounds.length > 1) {
+                    map.fitBounds(bounds, { padding: [20, 20] });
+                } else if (bounds.length === 1) {
+                    map.setView(bounds[0], 9);
+                }
+            }
+        }
+        
+        // 6. ฟังก์ชันเริ่มต้นเมื่อคลิกปุ่ม
+        function startWeatherFetch() {
+            const points = parseCoordinates();
+            currentPoints = points;
+            fetchWeatherForAllPoints(points);
+        }
+
+        // ดึงข้อมูลเมื่อโหลดหน้าเว็บครั้งแรกด้วยค่าเริ่มต้นใน textarea
+        document.addEventListener('DOMContentLoaded', startWeatherFetch);
+    </script>
+
+</body>
+</html>
