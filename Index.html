@@ -1,0 +1,223 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rain map</title>
+</head>
+<body>
+    <script src="script.js"></script>
+</body>
+</html> -->
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>แอปพยากรณ์อากาศ v2 (Muti-Mark + Arrows)</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylinedecorator.js"></script>
+
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            display: flex; /* ใช้ Flexbox แบ่งหน้าจอ */
+            height: 100vh; /* ให้เต็มความสูงจอ */
+        }
+        #sidebar {
+            width: 350px;
+            padding: 20px;
+            background: #f4f4f4;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+            overflow-y: auto; /* ถ้าเนื้อหาเยอะให้ scroll */
+        }
+        #map-container {
+            flex-grow: 1; /* ให้แผนที่ขยายเต็มพื้นที่ที่เหลือ */
+        }
+        #map { 
+            height: 100%; /* ให้แผนที่สูงเต็ม container */
+            width: 100%;
+        }
+        #search-input { width: calc(100% - 20px); padding: 8px; margin-bottom: 10px; }
+        .control-button { 
+            padding: 10px; 
+            width: 100%; 
+            background: #0078A8; 
+            color: white; 
+            border: none; 
+            cursor: pointer; 
+            margin-bottom: 10px;
+        }
+        .control-button:hover { background: #005f86; }
+        h3 { border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <h3>CONTROLS</h3>
+        
+        <input type="text" id="search-input" placeholder="ค้นหาสถานที่...">
+        <button id="search-button" class="control-button">ค้นหา</button>
+        
+        <hr>
+        
+        <p><b>โหมด:</b> คลิกบนแผนที่เพื่อปักหมุดพยากรณ์อากาศ</p>
+        
+        <hr>
+        
+        <button id="clear-button" class="control-button" style="background: #D9534F;">ล้างหมุดทั้งหมด</button>
+    </div>
+    
+    <div id="map-container">
+        <div id="map"></div>
+    </div>
+
+    <script>
+        // --- 5. SETUP แผนที่ และ ไอคอน (เหมือนเดิม) ---
+        var map = L.map('map').setView([13.7563, 100.5018], 10);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+
+        // ไอคอนสภาพอากาศ
+        var sunnyIcon = L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/64/869/869869.png', iconSize: [40, 40], iconAnchor: [20, 40], popupAnchor: [0, -40] });
+        var cloudyIcon = L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/64/1163/1163624.png', iconSize: [40, 40], iconAnchor: [20, 40], popupAnchor: [0, -40] });
+        var rainyIcon = L.icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/64/3351/3351979.png', iconSize: [40, 40], iconAnchor: [20, 40], popupAnchor: [0, -40] });
+        var weatherIcons = { 'sunny': sunnyIcon, 'cloudy': cloudyIcon, 'rainy': rainyIcon };
+        var weatherTypes = ['sunny', 'cloudy', 'rainy'];
+
+        // --- 6. [Feature 1] Muti Landmark (หลายหมุด) ---
+        // เราสร้าง Layer Group เพื่อเก็บทุกอย่างที่เราวาด (หมุด, ลูกศร)
+        // ทำให้เรา "ล้างทั้งหมด" ได้ง่าย
+        var markersLayerGroup = L.layerGroup().addTo(map);
+
+
+        // --- 7. [Feature 3] ระบบสร้างลูกศร (Wind Arrow) ---
+        // นี่คือฟังก์ชันที่คุณขอ Arrow(องศา, ละติจุด, ลองติดจุด, ความยาว, ความกว้าง)
+        // เราจะเรียกใช้ฟังก์ชันนี้เมื่อมีการปักหมุด
+        function createWeatherArrow(bearing, lat, lon, lengthMeters, weight) {
+            
+            // 7.1 คำนวณจุดสิ้นสุด (End Point) จากจุดเริ่มต้น, ทิศทาง, และระยะทาง
+            // (นี่คือฟังก์ชันคณิตศาสตร์ที่ซับซ้อน)
+            var startPoint = L.latLng(lat, lon);
+            var endPoint = calculateDestinationPoint(startPoint, bearing, lengthMeters);
+            
+            // 7.2 สร้างเส้น Polyline ธรรมดา
+            var polyline = L.polyline([startPoint, endPoint], {
+                color: '#003366', // สีน้ำเงินเข้ม
+                weight: weight      // ความกว้างของเส้น (ตามที่คุณระบุ)
+            }).addTo(markersLayerGroup); // เพิ่มเส้น vào Layer Group
+
+            // 7.3 ใช้ Plugin "PolylineDecorator" เพื่อวาดหัวลูกศร
+            var arrowHead = L.polylineDecorator(polyline, {
+                patterns: [
+                    {
+                        offset: '100%', // วาดที่ปลายเส้น
+                        repeat: 0,
+                        symbol: L.Symbol.arrowHead({
+                            pixelSize: 15, // ขนาดหัวลูกศร
+                            pathOptions: {
+                                color: '#003366',
+                                fillOpacity: 1,
+                                weight: 0
+                            }
+                        })
+                    }
+                ]
+            }).addTo(markersLayerGroup); // เพิ่มหัวลูกศร vào Layer Group
+        }
+
+        // --- 8. [Feature 2] กดเพื่อวาง Mark ---
+        map.on('click', function(e) {
+            // e.latlng คือพิกัดที่ผู้ใช้คลิก
+            var lat = e.latlng.lat;
+            var lon = e.latlng.lng;
+            
+            // เรียกฟังก์ชันปักหมุด (ที่เราจะสร้างขึ้นมา)
+            addWeatherMark(lat, lon, "จุดที่คลิก");
+        });
+
+        // --- 9. ปุ่มค้นหา (Nominatim) ---
+        document.getElementById('search-button').addEventListener('click', async function() {
+            var query = document.getElementById('search-input').value;
+            if (!query) return;
+
+            const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=jsonv2&limit=1`;
+            try {
+                const response = await fetch(url, { headers: { 'User-Agent': 'MyWeatherApp 1.0 (youremail@example.com)' } });
+                const data = await response.json();
+
+                if (data && data.length > 0) {
+                    var result = data[0];
+                    var lat = parseFloat(result.lat);
+                    var lon = parseFloat(result.lon);
+                    
+                    // ย้ายแผนที่ไป
+                    map.setView([lat, lon], 13);
+                    
+                    // ปักหมุด ณ จุดที่ค้นหา
+                    addWeatherMark(lat, lon, result.display_name);
+                } else {
+                    alert("ไม่พบสถานที่");
+                }
+            } catch (error) {
+                console.error("เกิดข้อผิดพลาด:", error);
+            }
+        });
+        
+        // --- 10. [Feature 4] UI - ปุ่มล้างหมุด ---
+        document.getElementById('clear-button').addEventListener('click', function() {
+            markersLayerGroup.clearLayers(); // ล้างทุกอย่างใน Group
+        });
+
+
+        // --- ฟังก์ชันหลัก: ใช้ปักหมุด + ลูกศร (ใช้ซ้ำทั้งตอนคลิกและตอนค้นหา) ---
+        function addWeatherMark(lat, lon, locationName) {
+            
+            // 1. จำลองสภาพอากาศ (เหมือนเดิม)
+            var randomWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
+            var selectedIcon = weatherIcons[randomWeather];
+            
+            // 2. สร้าง Marker (ไอคอนแดด/ฝน/เมฆ)
+            var marker = L.marker([lat, lon], { icon: selectedIcon })
+                .bindPopup(`<b>${locationName}</b><br>อากาศ: ${randomWeather}`)
+                .addTo(markersLayerGroup); // <-- เพิ่มลง Group, ไม่ลบของเก่า
+                
+            // 3. จำลองทิศทางลมและสร้างลูกศร
+            var randomBearing = Math.random() * 360;  // องศา (0-360)
+            var length = 100000; // ความยาว 100 km (เพื่อให้เห็นชัดๆ)
+            var width = 4;       // ความกว้าง 4px
+            
+            // เรียกฟังก์ชันสร้างลูกศรที่เราทำไว้
+            createWeatherArrow(randomBearing, lat, lon, length, width);
+            
+            marker.openPopup();
+        }
+
+        // --- ฟังก์ชัน Helper: สำหรับคำนวณจุดหมายปลายทาง (Geodesy) ---
+        // (ไม่ต้องแก้ไขส่วนนี้ - ใช้สำหรับฟังก์ชันลูกศร)
+        function calculateDestinationPoint(startLatLng, bearing, distance) {
+            const R = 6371e3; // รัศมีโลก (เมตร)
+            const lat1 = startLatLng.lat * Math.PI / 180;
+            const lon1 = startLatLng.lng * Math.PI / 180;
+            const brng = bearing * Math.PI / 180;
+
+            const lat2 = Math.asin(Math.sin(lat1) * Math.cos(distance / R) +
+                          Math.cos(lat1) * Math.sin(distance / R) * Math.cos(brng));
+            const lon2 = lon1 + Math.atn2(Math.sin(brng) * Math.sin(distance / R) * Math.cos(lat1),
+                                 Math.cos(distance / R) - Math.sin(lat1) * Math.sin(lat2));
+
+            return L.latLng(lat2 * 180 / Math.PI, lon2 * 180 / Math.PI);
+        }
+
+    </script>
+</body>
+</html>
