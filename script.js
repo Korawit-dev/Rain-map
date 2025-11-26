@@ -1,3 +1,25 @@
+let lat = 13.75;
+let lng = 100.51;
+
+const map = L.map('map').setView([13.75, 100.51], 9);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+let myIcon = L.icon({
+    iconUrl: './right-arrow-hand-drawn-outline-svgrepo-com.svg',
+    iconSize: [38, 95],
+    iconAnchor: [22, 94],
+    popupAnchor: [-3, -76]
+});
+
+L.marker([lat, lng], {icon: myIcon}).addTo(map)
+    .bindPopup("---")
+    .openPopup();
+
+
 const VAR_MAP = {
     101: "temperature_2m",
     102: "relativehumidity_2m",
