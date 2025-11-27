@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Open-Meteo Pro Weather Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="header">
+            <div class="header-content">
+                <div class="header-icon">
+                    <i class="fas fa-cloud-sun"></i>
+                </div>
+                <h1>Open-Meteo Pro Weather Dashboard</h1>
+            </div>
+            <div class="header-actions">
+                <small>ข้อมูลสภาพอากาศแบบเรียลไทม์</small>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="controls-panel">
+                <div class="control-header">
+                    <i class="fas fa-map-marker-alt"></i>
+                    <label for="coordinateInput">ป้อนพิกัด (ละติจูด, ลองจิจูด, ชื่อเมือง - แต่ละบรรทัด)</label>
+                </div>
+                <textarea id="coordinateInput">13.75, 100.51, กรุงเทพมหานคร
+14.35, 100.57, อยุธยา
+12.93, 100.89, พัทยา</textarea>
+                <div class="example-text">ตัวอย่าง: <strong>13.75, 100.51, กรุงเทพมหานคร</strong> (ละติจูด, ลองจิจูด,
+                    ชื่อเมือง)</div>
+
+                <button><!-- <i class="fas fa-sync-alt"></i> --> (ปุ่มนี้ถูกปิดใช้งาน) ดึงข้อมูลสภาพอากาศ</button>
+            </div>
+
+            <div class="map-container">
+                <div id="map"></div>
+            </div>
+        </div>
+
+        <div id="loading">
+            <!-- ซ่อนไว้ตามค่าเริ่มต้น -->
+        </div>
+
+        <!-- 
+          STATIC MOCK CONTENT 
+          เนื้อหาส่วนนี้ถูกสร้างขึ้นมาเพื่อจำลอง UI เท่านั้น 
+          ในโค้ดจริง ส่วนนี้จะถูกสร้างโดย JavaScript 
+        -->
+        <div class="tabs-container">
+            <div class="tab-buttons" id="tabButtons">
+                <button class="tab-button active" index="0" onclick="button_active()">กรุงเทพมหานคร</button>
+                <button class="tab-button" index="1">อยุธยา</button>
+                <button class="tab-button" index="2">พัทยา</button>
+            </div>
+
+            <div id="tabContents">
+                <div class="tab-content active" id="content" index="0">
+                    <h2 style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+                        <i class="fas fa-cloud-sun" style="color: #f59e0b; font-size: 2rem;"></i>
+                        กรุงเทพมหานคร (13.7500, 100.5100)
+                    </h2>
+
+                    <div class="current-weather">
+                        <div class="weather-card">
+                            <i class="fas fa-thermometer-half"></i>
+                            <div class="card-title">อุณหภูมิปัจจุบัน</div>
+                            <div class="card-value">32.1<span class="card-unit">°C</span></div>
+                        </div>
+                        <div class="weather-card">
+                            <i class="fas fa-temperature-low"></i>
+                            <div class="card-title">อุณหภูมิที่รู้สึก</div>
+                            <div class="card-value">35.5<span class="card-unit">°C</span></div>
+                        </div>
+                        <div class="weather-card">
+                            <i class="fas fa-tint"></i>
+                            <div class="card-title">ความชื้นสัมพัทธ์</div>
+                            <div class="card-value">71<span class="card-unit">%</span></div>
+                        </div>
+                        <div class="weather-card">
+                            <i class="fas fa-wind"></i>
+                            <div class="card-title">ความเร็วลม</div>
+                            <div class="card-value">10.2<span class="card-unit">km/h</span></div>
+                        </div>
+                        <div class="weather-card">
+                            <i class="fas fa-cloud-rain"></i>
+                            <div class="card-title">ปริมาณฝน</div>
+                            <div class="card-value">0.0<span class="card-unit">mm</span></div>
+                        </div>
+                        <div class="weather-card">
+                            <i class="fas fa-tachometer-alt"></i>
+                            <div class="card-title">ความกดอากาศ</div>
+                            <div class="card-value">1009.1<span class="card-unit">hPa</span></div>
+                        </div>
+                    </div>
+
+                    <!-- 2. Hourly Scroll (Mock) -->
+                    <h3 style="margin-top: 30px;"><i class="fas fa-clock"></i> พยากรณ์รายชั่วโมง (สรุป)</h3>
+                    <div class="hourly-scroll">
+                        <div class="hourly-card">
+                            <div class="card-time">14:00</div>
+                            <div class="card-icon"><i class="fas fa-cloud-sun" style="color: #f59e0b;"></i></div>
+                            <div class="card-temp">32.1 °C</div>
+                            <div class="card-rain">ฝน: 0.0 mm</div>
+                            <div class="card-description">มีเมฆบางส่วน</div>
+                        </div>
+                        <div class="hourly-card">
+                            <div class="card-time">15:00</div>
+                            <div class="card-icon"><i class="fas fa-cloud" style="color: #64748b;"></i></div>
+                            <div class="card-temp">31.8 °C</div>
+                            <div class="card-rain">ฝน: 0.0 mm</div>
+                            <div class="card-description">มีเมฆมาก/ครึ้มฟ้า</div>
+                        </div>
+                        <div class="hourly-card">
+                            <div class="card-time">16:00</div>
+                            <div class="card-icon"><i class="fas fa-cloud-rain" style="color: #3b82f6;"></i></div>
+                            <div class="card-temp">30.5 °C</div>
+                            <div class="card-rain">ฝน: 0.2 mm</div>
+                            <div class="card-description">ฝนตกเบา</div>
+                        </div>
+                        <div class="hourly-card">
+                            <div class="card-time">17:00</div>
+                            <div class="card-icon"><i class="fas fa-bolt" style="color: #7e22ce;"></i></div>
+                            <div class="card-temp">29.0 °C</div>
+                            <div class="card-rain">ฝน: 1.1 mm</div>
+                            <div class="card-description">พายุฝนฟ้าคะนอง</div>
+                        </div>
+                        <div class="hourly-card">
+                            <div class="card-time">18:00</div>
+                            <div class="card-icon"><i class="fas fa-cloud-rain" style="color: #3b82f6;"></i></div>
+                            <div class="card-temp">28.5 °C</div>
+                            <div class="card-rain">ฝน: 0.1 mm</div>
+                            <div class="card-description">ฝนตกเบา</div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Details Table (Mock) -->
+                    <h3 style="margin-top: 30px;"><i class="fas fa-list-ul"></i> ตารางรายละเอียดพยากรณ์ 3 วัน
+                        (รายชั่วโมง)</h3>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>เวลา</th>
+                                    <th>สภาพอากาศ</th>
+                                    <th>อุณหภูมิ</th>
+                                    <th>รู้สึกเหมือน</th>
+                                    <th>จุดน้ำค้าง</th>
+                                    <th>ความชื้น</th>
+                                    <th>ความกดอากาศ</th>
+                                    <th>ความเร็วลม</th>
+                                    <th>ลมกระโชก</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>14:00 27 พ.ย.</td>
+                                    <td><i class="fas fa-cloud-sun" style="color: #f59e0b; margin-right: 5px;"></i>
+                                        มีเมฆบางส่วน</td>
+                                    <td>32.1 °C</td>
+                                    <td>35.5 °C</td>
+                                    <td>24.5 °C</td>
+                                    <td>71 %</td>
+                                    <td>1009.1 hPa</td>
+                                    <td>10.2 km/h</td>
+                                    <td>15.0 km/h</td>
+                                </tr>
+                                <tr>
+                                    <td>15:00 27 พ.ย.</td>
+                                    <td><i class="fas fa-cloud" style="color: #64748b; margin-right: 5px;"></i>
+                                        มีเมฆมาก/ครึ้มฟ้า</td>
+                                    <td>31.8 °C</td>
+                                    <td>35.2 °C</td>
+                                    <td>24.6 °C</td>
+                                    <td>72 %</td>
+                                    <td>1008.9 hPa</td>
+                                    <td>10.5 km/h</td>
+                                    <td>15.2 km/h</td>
+                                </tr>
+                                <tr>
+                                    <td>16:00 27 พ.ย.</td>
+                                    <td><i class="fas fa-cloud-rain" style="color: #3b82f6; margin-right: 5px;"></i>
+                                        ฝนตกเบา</td>
+                                    <td>30.5 °C</td>
+                                    <td>34.0 °C</td>
+                                    <td>24.8 °C</td>
+                                    <td>75 %</td>
+                                    <td>1009.0 hPa</td>
+                                    <td>11.0 km/h</td>
+                                    <td>16.1 km/h</td>
+                                </tr>
+                                <tr>
+                                    <td>17:00 27 พ.ย.</td>
+                                    <td><i class="fas fa-bolt" style="color: #7e22ce; margin-right: 5px;"></i>
+                                        พายุฝนฟ้าคะนอง</td>
+                                    <td>29.0 °C</td>
+                                    <td>32.1 °C</td>
+                                    <td>25.0 °C</td>
+                                    <td>80 %</td>
+                                    <td>1009.5 hPa</td>
+                                    <td>12.0 km/h</td>
+                                    <td>20.5 km/h</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Other tab-contents would go here, but are hidden -->
+                <div class="tab-content" id="content-AYT">
+                    <!-- Content for Ayutthaya would go here -->
+                </div>
+                <div class="tab-content" id="content-PTY">
+                    <!-- Content for Pattaya would go here -->
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
