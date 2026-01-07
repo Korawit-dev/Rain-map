@@ -1,136 +1,714 @@
 <!DOCTYPE html>
-<html lang="th">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบดูสภาพอากาศ OpenStreetMap</title>
+    <title>Hyper-Res Weather Heatmap (Smooth)</title>
     
-    <!-- นำเข้า Tailwind CSS สำหรับการตกแต่ง -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- นำเข้า Leaflet CSS (สำหรับแผนที่) -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     
-    <!-- นำเข้า Font Awesome สำหรับไอคอน -->
+    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <!-- ปรับแต่ง CSS เพิ่มเติม -->
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap');
+        
         body {
-            margin: 0;
-            padding: 0;
-            overflow: hidden; /* ป้องกัน Scrollbar */
-            font-family: 'Sarabun', sans-serif; /* แนะนำให้ใช้ฟอนต์ไทยสวยๆ ถ้ามี */
+            font-family: 'Kanit', sans-serif;
+            overflow: hidden; 
         }
         
         #map {
             height: 100vh;
             width: 100vw;
             z-index: 0;
+            background-color: #f8fafc;
         }
 
-        /* Glassmorphism Effect สำหรับ UI */
+        /* Glassmorphism Panel */
         .glass-panel {
             background: rgba(255, 255, 255, 0.9);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
         }
 
-        /* ปรับแต่ง Slider */
-        input[type=range] {
-            -webkit-appearance: none; 
-            background: transparent; 
+        /* Interactive Card */
+        .stat-card {
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 2px solid transparent;
         }
-        
+        .stat-card:hover {
+            transform: translateY(-2px);
+            background: rgba(255, 255, 255, 1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .stat-card.active {
+            border-color: #3b82f6;
+            background: rgba(239, 246, 255, 0.95);
+        }
+
+        /* Slider */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
         input[type=range]::-webkit-slider-thumb {
             -webkit-appearance: none;
-            height: 24px;
-            width: 24px;
+            height: 20px;
+            width: 20px;
             border-radius: 50%;
             background: #3b82f6;
             cursor: pointer;
-            margin-top: -10px;
-            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+            margin-top: -8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            transition: transform 0.1s;
         }
-        
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+        }
         input[type=range]::-webkit-slider-runnable-track {
             width: 100%;
             height: 4px;
             cursor: pointer;
-            background: #e5e7eb;
+            background: #cbd5e1;
             border-radius: 2px;
         }
-
-        /* Leaflet Control Override (เพื่อให้ UI ของเราทับแผนที่ได้ถูกต้อง) */
-        .leaflet-control-container .leaflet-top,
-        .leaflet-control-container .leaflet-bottom {
-            z-index: 500; /* ต่ำกว่า UI ของเราที่เราตั้ง z-index ไว้สูงกว่า */
+        
+        /* Loading Overlay */
+        #heatmap-loading {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1000;
+            background: rgba(0,0,0,0.85);
+            color: white;
+            padding: 1.5rem 2.5rem;
+            border-radius: 1.5rem;
+            text-align: center;
+            backdrop-filter: blur(4px);
+            width: 320px;
+        }
+        .loading-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 2px;
+            margin: 10px auto 0;
+            overflow: hidden;
+        }
+        .loading-progress {
+            height: 100%;
+            background: #60a5fa;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .warning-text {
+            color: #fca5a5;
+            font-size: 0.75rem;
+            margin-top: 0.5rem;
         }
     </style>
 </head>
-<body class="relative h-screen w-screen text-slate-800">
+<body class="bg-gray-100 relative">
 
-    <!-- ส่วนที่ 1: แผนที่ (Layer ล่างสุด) -->
-    <div id="map" class="absolute inset-0"></div>
+    <!-- Loading Indicator -->
+    <div id="heatmap-loading">
+        <div class="text-lg font-bold mb-1">กำลังสร้าง Heatmap...</div>
+        <div class="text-xs text-gray-300 mb-2">Step 0.02° | Smooth Transition</div>
+        <div class="text-sm text-blue-300 mb-2" id="loading-text">0/0 จุด</div>
+        <div class="loading-bar"><div class="loading-progress" id="loading-bar-inner"></div></div>
+        <div id="loading-warning" class="warning-text" style="display:none;">API Limit reached, showing partial data...</div>
+    </div>
 
-    <!-- ส่วนที่ 2: ค้นหาและข้อมูลสภาพอากาศ (ซ้ายบน) -->
-    <div class="absolute top-4 left-4 w-80 z-[1000] flex flex-col gap-3">
-        
-        <!-- Search Bar -->
-        <div class="glass-panel rounded-lg p-2 flex items-center gap-2 transition-all hover:shadow-lg">
-            <input type="text" id="search-input" placeholder="ค้นหาจังหวัด, เมือง..." class="w-full bg-transparent border-none outline-none px-2 text-sm placeholder-slate-400">
-            <button onclick="searchLocation()" class="bg-blue-500 hover:bg-blue-600 text-white rounded-md p-2 w-10 h-10 flex items-center justify-center transition-colors">
-                <i class="fa-solid fa-magnifying-glass"></i>
-            </button>
-        </div>
-
-        <!-- Weather Info Panel -->
-        <div id="weather-panel" class="glass-panel rounded-lg p-4 transition-all duration-300">
-            <div class="flex justify-between items-start mb-4">
-                <div>
-                    <h2 id="city-name" class="text-xl font-bold text-slate-800">กรุงเทพมหานคร</h2>
-                    <p id="current-date" class="text-xs text-slate-500">อัปเดตล่าสุด: วันนี้</p>
-                </div>
-                <div class="text-right">
-                    <i id="weather-icon" class="fa-solid fa-cloud-sun text-yellow-500 text-3xl"></i>
-                </div>
+    <!-- Search Bar -->
+    <div class="absolute top-4 left-4 z-20 w-80">
+        <div class="glass-panel rounded-2xl p-4 space-y-4">
+            <div class="relative">
+                <input type="text" id="search-input" placeholder="ค้นหาสถานที่..." 
+                       class="w-full pl-10 pr-4 py-2 rounded-xl bg-white/50 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-700 shadow-inner">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-gray-400"></i>
+                <button onclick="window.searchLocation()" class="absolute right-2 top-1.5 bg-blue-500 hover:bg-blue-600 text-white p-1.5 rounded-lg transition-colors shadow-sm">
+                    <i class="fa-solid fa-arrow-right text-xs"></i>
+                </button>
             </div>
-
-            <div class="flex items-center justify-between mb-4">
-                <div>
-                    <span id="temperature" class="text-4xl font-bold text-slate-800"></span>
-                    <p id="weather-desc" class="text-sm text-slate-600"> ปริมาณเมฆ <span id="cloud_cover"></span></p>
-                </div>
-                <div class="text-xs text-slate-500 space-y-1 text-right">
-                    <p><i class="fa-solid fa-cloud-showers-heavy text-blue-400 mr-1"></i> ปริมาตรน้ำฝน: <span id="rain"></span></p>
-                    <p><i class="fa-solid fa-droplet text-blue-400 mr-1"></i> ความชื้น: <span id="humidity"></span></p>
-                    <p><i class="fa-solid fa-wind text-gray-400 mr-1"></i> ลม: <span id="wind"></span></p>
-                    <p><i class="fa-solid fa-location-arrow"></i> ทิศทางลม: <span id="wind_direction"></span></p>
-                </div>
+            <div class="flex items-center space-x-2 text-xs text-gray-500 bg-white/40 p-2 rounded-lg">
+                <i class="fa-solid fa-location-crosshairs"></i>
+                <span id="mouse-coords">Lat: -, Lng: -</span>
+            </div>
+            <div class="text-xs text-blue-600 bg-blue-50 p-2 rounded-lg border border-blue-100 flex items-start">
+                <i class="fa-solid fa-layer-group mt-0.5 mr-2"></i>
+                <span>คลิกที่การ์ดเพื่อดู Heatmap แบบนุ่มนวล (Smooth)</span>
             </div>
         </div>
     </div>
 
-    <!-- ส่วนที่ 3: พิกัดเมาส์ (ขวาล่าง) -->
-    <!-- ปรับ bottom เป็น 80px (bottom-20) เพื่อหลบแถบเลื่อนด้านล่าง -->
-    <div class="absolute bottom-16 right-4 z-[1000]">
-        <div class="glass-panel px-3 py-1 rounded-md text-xs font-mono text-slate-600 flex items-center gap-2">
-            <i class="fa-solid fa-location-crosshairs text-blue-500"></i>
-            <span id="mouse-coords">Lat: 0.0000, Lng: 0.0000</span>
+    <!-- Weather Cards -->
+    <div class="absolute top-4 right-16 z-20 w-80 pointer-events-none"> 
+        <div class="glass-panel rounded-2xl p-6 pointer-events-auto transition-all transform hover:scale-[1.01]">
+            
+            <div class="text-center mb-6">
+                <h2 id="city-name" class="text-2xl font-bold text-gray-800 drop-shadow-sm">กรุงเทพมหานคร</h2>
+                <p id="current-date" class="text-sm text-gray-500 mt-1">กำลังโหลด...</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4 mb-6">
+                <div id="card-temp" onclick="window.toggleHeatmap('temp')" class="stat-card bg-white/50 p-3 rounded-xl text-center shadow-sm">
+                    <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Temperature</div>
+                    <div class="flex justify-center items-center text-blue-600">
+                        <i class="fa-solid fa-temperature-three-quarters mr-2"></i>
+                        <span id="temperature" class="text-2xl font-bold">--</span>
+                    </div>
+                </div>
+                <div id="card-hum" onclick="window.toggleHeatmap('hum')" class="stat-card bg-white/50 p-3 rounded-xl text-center shadow-sm">
+                    <div class="text-gray-400 text-xs uppercase tracking-wider mb-1">Humidity</div>
+                    <div class="flex justify-center items-center text-teal-600">
+                        <i class="fa-solid fa-droplet mr-2"></i>
+                        <span id="humidity" class="text-2xl font-bold">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 text-sm">
+                <div id="card-wind" onclick="window.toggleHeatmap('wind')" class="stat-card flex items-center justify-between p-2 bg-white/40 rounded-lg">
+                    <span class="text-gray-600"><i class="fa-solid fa-wind mr-2 text-gray-400"></i>Wind</span>
+                    <span id="wind" class="font-semibold text-gray-800">--</span>
+                </div>
+                <div class="flex items-center justify-between p-2 bg-white/40 rounded-lg opacity-60">
+                    <span class="text-gray-600"><i class="fa-solid fa-compass mr-2 text-gray-400"></i>Dir</span>
+                    <span id="wind_direction" class="font-semibold text-gray-800">--</span>
+                </div>
+                <div id="card-cloud" onclick="window.toggleHeatmap('cloud')" class="stat-card flex items-center justify-between p-2 bg-white/40 rounded-lg">
+                    <span class="text-gray-600"><i class="fa-solid fa-cloud mr-2 text-gray-400"></i>Cloud</span>
+                    <span id="cloud_cover" class="font-semibold text-gray-800">--</span>
+                </div>
+                <div id="card-rain" onclick="window.toggleHeatmap('rain')" class="stat-card flex items-center justify-between p-2 bg-white/40 rounded-lg">
+                    <span class="text-gray-600"><i class="fa-solid fa-cloud-rain mr-2 text-gray-400"></i>Rain</span>
+                    <span id="rain" class="font-semibold text-gray-800">--</span>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- ส่วนที่ 4: แถบเลื่อน (ล่างสุด) -->
-    <div class="absolute bottom-0 left-0 w-full z-[1000] bg-white/90 backdrop-blur-md border-t border-gray-200 px-6 py-3 shadow-lg h-14 flex items-center">
-        <span class="text-xs font-bold mr-3 text-slate-500 whitespace-nowrap">ไทม์ไลน์ / ข้อมูล</span>
-        <input type="range" min="-12" max="12" value="0" class="w-full" id="data-slider">
-        <span class="text-xs font-bold ml-3 text-slate-500" id="slider-value">0%</span>
+    <!-- Timeline Slider -->
+    <div class="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-20 w-11/12 max-w-2xl">
+        <div class="glass-panel px-6 py-4 rounded-full flex items-center space-x-4 shadow-lg">
+            <button onclick="window.changeTime(-1)" class="text-gray-500 hover:text-blue-500 transition"><i class="fa-solid fa-backward"></i></button>
+            <div class="flex-1 relative">
+                <input type="range" id="data-slider" min="-24" max="24" value="0" step="1">
+                <div class="flex justify-between text-[10px] text-gray-400 mt-1 font-mono">
+                    <span>-24h</span>
+                    <span>Now</span>
+                    <span>+24h</span>
+                </div>
+            </div>
+            <button onclick="window.changeTime(1)" class="text-gray-500 hover:text-blue-500 transition"><i class="fa-solid fa-forward"></i></button>
+            <div class="w-16 text-right font-mono font-bold text-blue-600 text-lg" id="slider-value">0h</div>
+        </div>
     </div>
 
-    <!-- Script: Leaflet JS และ Logic การทำงาน -->
+    <!-- Map -->
+    <div id="map"></div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <script src="script.js"></script>
+
+    <script>
+    (function() { 
+        //***************************************************************************************************************************************************************** */
+        // Configuration
+        const P = [
+            "temperature_2m", "relative_humidity_2m", "dewpoint_2m", "apparent_temperature", "pressure_msl", "surface_pressure", // 0-5
+            "cloud_cover", "cloud_cover_low", "cloud_cover_mid", "cloud_cover_high", // 6-9
+            "wind_speed_10m", "wind_speed_80m", "wind_speed_120m", "wind_speed_180m", // 10-13
+            "wind_direction_10m", "wind_direction_80m", "wind_gusts_10m", // 14-16
+            "precipitation", "rain", "snowfall", "precipitation_probability", "weather_code", // 17-21
+        ];
+
+        // Indices
+        const IDX_TEMP = 0;
+        const IDX_HUM = 1;
+        const IDX_CLOUD = 6;
+        const IDX_WIND = 10;
+        const IDX_WIND_DIR = 14;
+        const IDX_RAIN = 17;
+
+        // State
+        let weatherCache = null;
+        let cachedLat = null;
+        let cachedLon = null;
+        let timeOffset = 0; 
+
+        // Heatmap System
+        let heatmapData = []; 
+        let heatmapCircles = []; // Store Circle references for smooth updating
+        let heatmapLayerGroup = null;
+        let activeHeatmapMetric = null;
+        let isFetchingHeatmap = false;
+
+        // Map Setup
+        var container = L.DomUtil.get('map');
+        if(container != null) container._leaflet_id = null;
+
+        const map = L.map('map', { 
+            zoomControl: false,
+            preferCanvas: true // Critical for performance with many circles
+        }).setView([13.7563, 100.5018], 13); 
+        
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap'
+        }).addTo(map);
+        L.control.zoom({ position: 'topright' }).addTo(map);
+        heatmapLayerGroup = L.layerGroup().addTo(map);
+
+        map.on('mousemove', (e) => {
+            document.getElementById('mouse-coords').innerText = 
+                `Lat: ${e.latlng.lat.toFixed(4)}, Lng: ${e.latlng.lng.toFixed(4)}`;
+        });
+
+        // --------------------------------------------------------------------------------
+        // HELPERS: Fetch with Retry
+        // --------------------------------------------------------------------------------
+        async function fetchWithRetry(url, retries = 3, delay = 1000) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const res = await fetch(url);
+                    if (!res.ok) {
+                        if (res.status === 429) throw new Error('API_LIMIT_429');
+                        let errorText = res.statusText;
+                        try { errorText = await res.text(); } catch(e){}
+                        throw new Error(`API Error ${res.status}: ${errorText}`);
+                    }
+                    return await res.json();
+                } catch (e) {
+                    if (e.message === 'API_LIMIT_429') throw e;
+                    if (i === retries - 1) throw e;
+                    await new Promise(r => setTimeout(r, delay * (i + 1))); 
+                }
+            }
+        }
+
+        // --------------------------------------------------------------------------------
+        // CORE: Single Point Fetch (For Card Data)
+        // --------------------------------------------------------------------------------
+        async function fetchAndCacheWeather(lat, lon) {
+            if (weatherCache && lat === cachedLat && lon === cachedLon) return true;
+            
+            const requiredIndices = [IDX_TEMP, IDX_HUM, IDX_CLOUD, IDX_WIND, IDX_WIND_DIR, IDX_RAIN];
+            const params = requiredIndices.map(i => P[i]).join(",");
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=${params}&past_days=1&forecast_days=2&timezone=GMT`;
+
+            try {
+                weatherCache = await fetchWithRetry(url);
+                cachedLat = lat;
+                cachedLon = lon;
+                
+                heatmapData = []; 
+                heatmapCircles = [];
+                activeHeatmapMetric = null;
+                updateHeatmapCardsUI();
+                heatmapLayerGroup.clearLayers();
+                return true;
+            } catch (e) {
+                console.error("Fetch Error Final:", e);
+                if (e.message === 'API_LIMIT_429') {
+                    alert("API Limit Exceeded. Please wait.");
+                }
+                return false;
+            }
+        }
+
+        // --------------------------------------------------------------------------------
+        // ADVANCED: Detailed Grid Fetching (Batching)
+        // --------------------------------------------------------------------------------
+        async function fetchDetailedHeatmap(centerLat, centerLon) {
+            if (isFetchingHeatmap) return;
+            isFetchingHeatmap = true;
+            
+            const loadingEl = document.getElementById('heatmap-loading');
+            const loadingText = document.getElementById('loading-text');
+            const loadingBar = document.getElementById('loading-bar-inner');
+            const loadingWarning = document.getElementById('loading-warning');
+            
+            loadingEl.style.display = 'block';
+            loadingBar.style.width = '0%';
+            loadingWarning.style.display = 'none';
+            
+            // Clear everything for new location
+            heatmapLayerGroup.clearLayers();
+            heatmapData = [];
+            heatmapCircles = [];
+
+            try {
+                const step = 0.02; 
+                const radius = 0.25; 
+                let coords = [];
+
+                for (let lat = centerLat - radius; lat <= centerLat + radius; lat += step) {
+                    for (let lon = centerLon - radius; lon <= centerLon + radius; lon += step) {
+                        const dLat = lat - centerLat;
+                        const dLon = lon - centerLon;
+                        if (dLat*dLat + dLon*dLon <= radius*radius) {
+                            coords.push({lat: lat, lon: lon});
+                        }
+                    }
+                }
+
+                coords.sort((a, b) => {
+                    const d1 = (a.lat - centerLat)**2 + (a.lon - centerLon)**2;
+                    const d2 = (b.lat - centerLat)**2 + (b.lon - centerLon)**2;
+                    return d1 - d2;
+                });
+                
+                loadingText.innerText = `กำลังดึงข้อมูล ${coords.length} จุด...`;
+                
+                const chunkSize = 80;
+                const chunks = [];
+                for (let i = 0; i < coords.length; i += chunkSize) {
+                    chunks.push(coords.slice(i, i + chunkSize));
+                }
+
+                const requiredIndices = [IDX_TEMP, IDX_HUM, IDX_CLOUD, IDX_WIND, IDX_RAIN];
+                const params = requiredIndices.map(i => P[i]).join(",");
+                
+                let completed = 0;
+                let limitReached = false;
+
+                for (let chunk of chunks) {
+                    if (limitReached) break;
+
+                    const lats = chunk.map(c => c.lat.toFixed(4)).join(',');
+                    const lons = chunk.map(c => c.lon.toFixed(4)).join(',');
+                    
+                    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=${params}&past_days=1&forecast_days=2&timezone=GMT`;
+                    
+                    try {
+                        const data = await fetchWithRetry(url, 2, 500); 
+                        const batchResults = Array.isArray(data) ? data : [data];
+                        const validResults = [];
+
+                        batchResults.forEach((d, i) => {
+                            if (d && !d.error) {
+                                d.lat = chunk[i].lat;
+                                d.lon = chunk[i].lon;
+                                heatmapData.push(d);
+                                validResults.push(d);
+                            }
+                        });
+                        
+                        // Initial Draw (Create Circles)
+                        if (activeHeatmapMetric) {
+                            createHeatmapCircles(validResults);
+                        }
+
+                    } catch (e) {
+                        if (e.message === 'API_LIMIT_429') {
+                            loadingWarning.style.display = 'block';
+                            limitReached = true; 
+                        } else {
+                            console.error("Batch failed", e);
+                        }
+                    }
+
+                    completed++;
+                    loadingBar.style.width = `${(completed / chunks.length) * 100}%`;
+                    await new Promise(r => setTimeout(r, 200));
+                }
+
+                console.log(`✅ Loaded ${heatmapData.length} heatmap points.`);
+
+            } catch (e) {
+                console.error("Heatmap Gen Error:", e);
+                alert("เกิดข้อผิดพลาดในการโหลดข้อมูลละเอียด");
+            } finally {
+                if(loadingWarning.style.display === 'block') {
+                    setTimeout(() => { 
+                        isFetchingHeatmap = false;
+                        loadingEl.style.display = 'none'; 
+                    }, 3000);
+                } else {
+                    isFetchingHeatmap = false;
+                    loadingEl.style.display = 'none';
+                }
+            }
+        }
+
+        // --------------------------------------------------------------------------------
+        // VISUALIZATION: Rendering & Updating
+        // --------------------------------------------------------------------------------
+        window.toggleHeatmap = async function(metric) {
+            if (activeHeatmapMetric === metric) {
+                activeHeatmapMetric = null;
+                heatmapLayerGroup.clearLayers();
+                heatmapCircles = []; // Clear refs
+                updateHeatmapCardsUI();
+                return;
+            }
+
+            // Switching metric or turning on
+            activeHeatmapMetric = metric;
+            updateHeatmapCardsUI();
+
+            if (heatmapData.length === 0 && cachedLat) {
+                await fetchDetailedHeatmap(cachedLat, cachedLon);
+            } else {
+                // If data exists but metric changed, we need to re-render all colors
+                // Or if layers were cleared, re-create
+                heatmapLayerGroup.clearLayers();
+                heatmapCircles = [];
+                createHeatmapCircles(heatmapData);
+            }
+        };
+
+        // 1. Create Circles (First Time / Fetch)
+        function createHeatmapCircles(points) {
+            if (!activeHeatmapMetric || !points || points.length === 0) return;
+
+            const t = new Date(Date.now() + timeOffset * 3600000);
+            t.setMinutes(0, 0, 0); 
+            const tStr = t.toISOString().slice(0, 16);
+            
+            const refPoint = points.find(p => p.hourly && p.hourly.time);
+            if(!refPoint) return;
+            const idx = refPoint.hourly.time.indexOf(tStr);
+            if (idx === -1) return;
+
+            let field = getMetricField(activeHeatmapMetric);
+            const radiusMeters = 1800; // Overlap slightly for 0.02 deg (~2200m)
+
+            points.forEach(point => {
+                if(!point.hourly || !point.hourly[field]) return;
+                
+                const val = point.hourly[field][idx];
+                const color = getColor(activeHeatmapMetric, val);
+                
+                // Always create circle, control visibility via opacity/color
+                const circle = L.circle([point.lat, point.lon], {
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.55, // Nice transparency
+                    radius: radiusMeters,
+                    stroke: false,
+                    interactive: false 
+                }).addTo(heatmapLayerGroup);
+
+                // Store reference for updates
+                heatmapCircles.push({
+                    circle: circle,
+                    data: point
+                });
+            });
+        }
+
+        // 2. Update Colors (Slider Change) - No Flicker!
+        function updateHeatmapColors() {
+            if (!activeHeatmapMetric || heatmapCircles.length === 0) return;
+
+            const t = new Date(Date.now() + timeOffset * 3600000);
+            t.setMinutes(0, 0, 0); 
+            const tStr = t.toISOString().slice(0, 16);
+            
+            // Assume logic same for all
+            const refPoint = heatmapCircles[0].data;
+            if(!refPoint || !refPoint.hourly) return;
+            const idx = refPoint.hourly.time.indexOf(tStr);
+            if (idx === -1) return;
+
+            let field = getMetricField(activeHeatmapMetric);
+
+            // Batch style updates
+            heatmapCircles.forEach(item => {
+                const point = item.data;
+                const circle = item.circle;
+                
+                if(!point.hourly[field]) return;
+                const val = point.hourly[field][idx];
+                const color = getColor(activeHeatmapMetric, val);
+
+                // Set style directly - efficient in Leaflet Canvas
+                circle.setStyle({
+                    color: color,
+                    fillColor: color
+                });
+            });
+        }
+
+        function getMetricField(metric) {
+            if (metric === 'temp') return P[IDX_TEMP];
+            if (metric === 'hum') return P[IDX_HUM];
+            if (metric === 'wind') return P[IDX_WIND];
+            if (metric === 'rain') return P[IDX_RAIN];
+            if (metric === 'cloud') return P[IDX_CLOUD];
+            return P[IDX_TEMP];
+        }
+
+        function getColor(metric, value) {
+            if (metric === 'temp') {
+                if (value < 10) return '#3b82f6'; 
+                if (value < 20) return '#60a5fa'; 
+                if (value < 28) return '#4ade80'; 
+                if (value < 32) return '#facc15'; 
+                if (value < 36) return '#fb923c'; 
+                return '#ef4444'; 
+            }
+            if (metric === 'hum') {
+                if (value < 40) return '#fbbf24'; 
+                if (value < 60) return '#4ade80'; 
+                if (value < 80) return '#60a5fa'; 
+                return '#2563eb'; 
+            }
+            if (metric === 'rain') {
+                if (value <= 0.1) return 'transparent';
+                if (value < 2.0) return '#93c5fd'; 
+                if (value < 10.0) return '#3b82f6'; 
+                return '#1e3a8a'; 
+            }
+            if (metric === 'wind') {
+                if (value < 10) return '#4ade80';
+                if (value < 25) return '#facc15';
+                if (value < 40) return '#fb923c';
+                return '#ef4444';
+            }
+            if (metric === 'cloud') {
+                if (value < 20) return 'transparent';
+                if (value < 50) return '#e2e8f0'; 
+                if (value < 80) return '#94a3b8'; 
+                return '#475569'; 
+            }
+            return '#ccc';
+        }
+
+        function updateHeatmapCardsUI() {
+            ['temp', 'hum', 'wind', 'rain', 'cloud'].forEach(m => {
+                const el = document.getElementById(`card-${m}`);
+                if(el) {
+                    if(activeHeatmapMetric === m) el.classList.add('active');
+                    else el.classList.remove('active');
+                }
+            });
+        }
+
+        // --------------------------------------------------------------------------------
+        // UI & HELPERS
+        // --------------------------------------------------------------------------------
+        async function w(i, h) {
+            if (!weatherCache || !weatherCache.hourly) return "--";
+            const t = new Date(Date.now() + h * 3600000);
+            t.setMinutes(0, 0, 0); 
+            const tStr = t.toISOString().slice(0, 16); 
+            const idx = weatherCache.hourly.time.indexOf(tStr);
+            if (idx === -1) return "--"; 
+            return weatherCache.hourly[P[i]][idx];
+        }
+
+        window.searchLocation = async function() {
+            const query = document.getElementById('search-input').value;
+            if (!query) return;
+
+            const btn = document.querySelector('button[onclick="window.searchLocation()"]');
+            const originalIcon = btn ? btn.innerHTML : '';
+            if(btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+                const data = await res.json();
+
+                if (data && data.length > 0) {
+                    const lat = parseFloat(data[0].lat);
+                    const lon = parseFloat(data[0].lon);
+                    let displayName = data[0].display_name.split(',')[0];
+
+                    map.setView([lat, lon], 13); 
+                    
+                    map.eachLayer(l => { if (l instanceof L.Marker) map.removeLayer(l); });
+                    L.marker([lat, lon]).addTo(map).bindPopup(`<b>${displayName}</b>`).openPopup();
+
+                    await fetchAndCacheWeather(lat, lon);
+                    updateWeatherUI(displayName, lat, lon, timeOffset);
+                } else {
+                    alert('ไม่พบสถานที่');
+                }
+            } catch (e) {
+                console.error(e);
+                alert('เกิดข้อผิดพลาด');
+            } finally {
+                if(btn) btn.innerHTML = originalIcon;
+            }
+        };
+
+        async function updateWeatherUI(name, lat, lon, h) {
+            try {
+                const temp = await w(IDX_TEMP, h);
+                const hum = await w(IDX_HUM, h);
+                const ws = await w(IDX_WIND, h);
+                const wd = await w(IDX_WIND_DIR, h);
+                const clouds = await w(IDX_CLOUD, h);
+                const rainVal = await w(IDX_RAIN, h);
+
+                const setTxt = (id, val) => {
+                    const el = document.getElementById(id);
+                    if(el) el.innerText = val;
+                };
+
+                setTxt('city-name', name);
+                setTxt('temperature', temp !== '--' ? `${temp}°` : '--');
+                setTxt('humidity', hum !== '--' ? `${hum}%` : '--');
+                setTxt('wind', ws !== '--' ? `${ws} km/h` : '--');
+                setTxt('wind_direction', wd !== '--' ? `${wd}°` : '--');
+                setTxt('cloud_cover', clouds !== '--' ? `${clouds}%` : '--');
+                setTxt('rain', rainVal !== '--' ? `${rainVal} mm` : '--');
+
+                const now = new Date(Date.now() + h * 3600000);
+                const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+                setTxt('current-date', now.toLocaleDateString('th-TH', options));
+
+                // If heatmap is active, just update colors, don't re-create layers!
+                if (activeHeatmapMetric && heatmapCircles.length > 0) {
+                    updateHeatmapColors();
+                }
+                
+            } catch (error) {
+                console.error("UI Error:", error);
+            }
+        }
+
+        const slider = document.getElementById('data-slider');
+        window.changeTime = function(delta) {
+            let val = parseInt(slider.value) + delta;
+            if(val > 24) val = 24; if(val < -24) val = -24;
+            slider.value = val;
+            updateSliderUI(val);
+        };
+        function updateSliderUI(val) {
+            document.getElementById('slider-value').innerText = `${val > 0 ? '+' : ''}${val}h`;
+            timeOffset = parseInt(val);
+            const name = document.getElementById('city-name').innerText;
+            updateWeatherUI(name, cachedLat, cachedLon, timeOffset);
+        }
+        slider.addEventListener('input', function() { updateSliderUI(this.value); });
+
+        const searchInput = document.getElementById('search-input');
+        if(searchInput) {
+            const newInput = searchInput.cloneNode(true);
+            searchInput.parentNode.replaceChild(newInput, searchInput);
+            newInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') window.searchLocation(); });
+        }
+
+        (async () => {
+            await fetchAndCacheWeather(13.7563, 100.5018);
+            updateWeatherUI('กรุงเทพมหานคร', 13.7563, 100.5018, 0);
+        })();
+
+    })();
+    </script>
 </body>
 </html>
