@@ -54,121 +54,142 @@ async function w(i, h, lat, lon) {
 
 //************************************************************************************************** */
 
-let time = 0;
+// Initialize Icons
+lucide.createIcons();
 
-// --- 1. เริ่มต้นแผนที่ (Map Initialization) ---
-const map = L.map('map', {
-    zoomControl: false // ซ่อนปุ่ม Zoom เดิมเพื่อความสวยงาม (ถ้าต้องการให้ลบออก)
-}).setView([13.7563, 100.5018], 10); // กรุงเทพฯ
+// === Navigation Logic ===
+function switchTab(tabId) {
+    // Hide all sections
+    document.querySelectorAll('.page-section').forEach(section => {
+        section.classList.add('hidden');
+    });
 
-// เพิ่ม Layer แผนที่จาก OpenStreetMap
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-}).addTo(map);
+    // Show target section
+    document.getElementById(tabId).classList.remove('hidden');
 
-// ย้ายปุ่ม Zoom ไปขวาบน (เพื่อให้ไม่บัง UI ซ้ายบน)
-L.control.zoom({ position: 'topright' }).addTo(map);
+    // Update Nav Buttons State
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        if (btn.dataset.target === tabId) {
+            btn.classList.add('bg-blue-600', 'text-white');
+            btn.classList.remove('text-gray-300', 'hover:bg-slate-800');
+        } else {
+            btn.classList.remove('bg-blue-600', 'text-white');
+            btn.classList.add('text-gray-300', 'hover:bg-slate-800');
+        }
+    });
 
-// --- 2. จัดการพิกัดเมาส์ (Mouse Coordinates) ---
-map.on('mousemove', function (e) {
-    const lat = e.latlng.lat.toFixed(4);
-    const lng = e.latlng.lng.toFixed(4);
-    document.getElementById('mouse-coords').innerText = `Lat: ${lat}, Lng: ${lng}`;
-});
+    // Close mobile menu if open
+    document.getElementById('mobile-menu').classList.add('hidden');
 
-// --- 3. ระบบค้นหาและอัปเดตข้อมูล (Search & Weather Logic) ---
-async function searchLocation() {
-    const query = document.getElementById('search-input').value;
-    if (!query) return;
+    // If home, we might want to ensure scroll to top
+    window.scrollTo(0, 0);
 
-    const btn = document.querySelector('button');
-    const originalIcon = btn.innerHTML;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    // If switching to dashboard, load data if empty
+    if (tabId === 'dashboard') {
+        const results = document.getElementById('weather-results');
+        if (results.innerHTML.trim() === '') {
+            fetchWeatherData();
+        }
+    }
+}
+
+function toggleMobileMenu() {
+    const menu = document.getElementById('mobile-menu');
+    menu.classList.toggle('hidden');
+}
+
+// === Weather Dashboard Logic ===
+async function fetchWeatherData() {
+    const input = document.getElementById('coords-input').value;
+    const lines = input.split('\n').filter(line => line.trim() !== '');
+    const resultsContainer = document.getElementById('weather-results');
+    const loadingState = document.getElementById('loading-state');
+    const fetchBtn = document.getElementById('fetch-btn');
+
+    // UI State: Loading
+    loadingState.classList.remove('hidden');
+    resultsContainer.innerHTML = '';
+    fetchBtn.disabled = true;
+    fetchBtn.querySelector('span').textContent = 'กำลังดึงข้อมูล...';
 
     try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
-        const data = await response.json();
+        for (const line of lines) {
+            const parts = line.split(',');
+            if (parts.length < 2) continue;
 
-        if (data && data.length > 0) {
-            const lat = parseFloat(data[0].lat);
-            const lon = parseFloat(data[0].lon);
-            const displayName = data[0].display_name.split(',')[0];
+            const latStr = parts[0].trim();
+            const lonStr = parts[1].trim();
+            const city = parts[2] ? parts[2].trim() : `${latStr}, ${lonStr}`;
 
-            map.setView([lat, lon], 12);
+            const lat = parseFloat(latStr);
+            const lon = parseFloat(lonStr);
 
-            L.marker([lat, lon]).addTo(map)
-                .bindPopup(`<b>${displayName}</b>`)
-                .openPopup();
+            if (isNaN(lat) || isNaN(lon)) continue;
 
-            updateWeatherUI(displayName, lat, lon, time);
-        } else {
-            alert('ไม่พบสถานที่ที่ค้นหา');
+            // Fetch from Open-Meteo
+            const response = await fetch(
+                `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,rain,surface_pressure,wind_speed_10m`
+            );
+            const data = await response.json();
+
+            if (data.current) {
+                const isRaining = data.current.rain > 0;
+                const iconType = isRaining ? 'cloud-rain' : 'wind';
+                const iconColorClass = isRaining ? 'bg-blue-500/20 text-blue-400' : 'bg-yellow-500/20 text-yellow-400';
+
+                // Create Card HTML
+                const cardHTML = `
+                            <div class="bg-slate-800 rounded-xl p-5 border border-slate-700 hover:border-blue-500 transition-all duration-300 group animate-fade-in-up">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div>
+                                        <h3 class="text-xl font-bold text-white group-hover:text-blue-400 transition-colors">${city}</h3>
+                                        <p class="text-xs text-slate-500 font-mono">${lat.toFixed(4)}, ${lon.toFixed(4)}</p>
+                                    </div>
+                                    <div class="p-2 rounded-full ${iconColorClass}">
+                                        <i data-lucide="${iconType}" class="w-6 h-6"></i>
+                                    </div>
+                                </div>
+                                
+                                <div class="flex items-end space-x-2 mb-6">
+                                    <span class="text-4xl font-bold">${await w(0,0,lat,lon)}°C</span>
+                                    <span class="text-sm text-slate-400 mb-1">อุณหภูมิปัจจุบัน</span>
+                                </div>
+
+                                <div class="grid grid-cols-3 gap-2 pt-4 border-t border-slate-700">
+                                    <div class="text-center">
+                                        <div class="flex justify-center text-blue-400 mb-1"><i data-lucide="droplets" class="w-4 h-4"></i></div>
+                                        <p class="text-xs text-slate-500">ความชื้น</p>
+                                        <p class="font-semibold">${await w(1,0,lat,lon)}%</p>
+                                    </div>
+                                    <div class="text-center">
+                                        <div class="flex justify-center text-cyan-400 mb-1"><i data-lucide="cloud-rain" class="w-4 h-4"></i></div>
+                                        <p class="text-xs text-slate-500">ฝน</p>
+                                        <p class="font-semibold">${await w(18,0,lat,lon)} mm</p>
+                                    </div>
+                                    <div class="text-center">
+                                        <div class="flex justify-center text-purple-400 mb-1"><i data-lucide="activity" class="w-4 h-4"></i></div>
+                                        <p class="text-xs text-slate-500">ความดัน</p>
+                                        <p class="font-semibold">${await w(5,0,lat,lon)}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                resultsContainer.insertAdjacentHTML('beforeend', cardHTML);
+            }
         }
     } catch (error) {
-        console.error('Error searching:', error);
-        alert('เกิดข้อผิดพลาดในการค้นหา');
+        console.error("Error fetching weather:", error);
+        resultsContainer.innerHTML = '<p class="text-red-400">เกิดข้อผิดพลาดในการดึงข้อมูล โปรดลองใหม่อีกครั้ง</p>';
     } finally {
-        btn.innerHTML = originalIcon;
+        // UI State: Finished
+        loadingState.classList.add('hidden');
+        fetchBtn.disabled = false;
+        fetchBtn.innerHTML = '<i data-lucide="search" class="mr-2 w-5 h-5"></i><span>ดึงข้อมูลสภาพอากาศ</span>';
+
+        // Re-initialize icons for newly added elements
+        lucide.createIcons();
     }
 }
 
-document.getElementById('search-input').addEventListener('keypress', function (e) {
-    if (e.key === 'Enter') {
-        searchLocation();
-    }
-});
-
-async function updateWeatherUI(locationName, lat, lon, time) {
-    // แสดงสถานะกำลังโหลด (Optional)
-    document.getElementById('city-name').innerText = "กำลังโหลด...";
-
-    try {
-        const temperature_2m = await w(0, time, lat, lon);
-        const relative_humidity_2m = await w(1, time, lat, lon);
-        const wind_speed_10m = await w(10, time, lat, lon);
-        const wind_direction_10m = await w(14, time, lat, lon);
-        const cloud_cover = await w(6, time, lat, lon);
-        const rain = await w(17, time, lat, lon);
-
-        document.getElementById('city-name').innerText = locationName;
-        document.getElementById('temperature').innerText = `${temperature_2m}°`;
-        document.getElementById('humidity').innerText = `${relative_humidity_2m}%`;
-        document.getElementById('wind').innerText = `${wind_speed_10m} km/h`;
-        document.getElementById('wind_direction').innerText = `${wind_direction_10m}°`;
-        document.getElementById('cloud_cover').innerText = `${cloud_cover}%`;
-        document.getElementById('rain').innerText = `${rain} mm`;
-
-        // อัปเดตวันที่
-        const now = new Date();
-        const options = { 
-            weekday: 'long', 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit' 
-        };
-        document.getElementById('current-date').innerText = now.toLocaleDateString('th-TH', options);
-        
-    } catch (error) {
-        console.error("UI Update Error:", error);
-    }
-}
-
-// เรียกอัปเดตครั้งแรก
-updateWeatherUI('กรุงเทพมหานคร', 13.7563, 100.5018, time);
-
-// --- 4. จัดการ Slider ด้านล่าง ---
-const slider = document.getElementById('data-slider');
-const sliderValue = document.getElementById('slider-value');
-
-slider.addEventListener('input', function () {
-    const val = this.value;
-    sliderValue.innerText = `${val}%`;
-
-    // พื้นที่สำหรับใส่ Logic ของคุณ
-    console.log("Slider value changed to:", val);
-    // ตัวอย่าง: ถ้า value > 50 ให้เปลี่ยนสี Map (สมมติ)
-    // if (val > 50) { ... }
-});
+// Initialize Home Tab
+switchTab('home');
