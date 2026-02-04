@@ -508,7 +508,8 @@
         <!-- SECTION: DASHBOARD -->
         <section id="dashboard" class="page-section hidden min-h-screen text-white py-20">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div class="mb-10 flex flex-col md:flex-row justify-between items-end gap-4 border-b border-white/10 pb-6 animate-fade-in-up">
+                <div
+                    class="mb-10 flex flex-col md:flex-row justify-between items-end gap-4 border-b border-white/10 pb-6 animate-fade-in-up">
                     <button
                         class="group text-center cursor-pointer p-6 rounded-2xl hover:bg-white/5 transition-all duration-300"
                         onclick="switchsupwindow(3)">
@@ -590,6 +591,7 @@
                         </div>
                     </div>
                 </div>
+                <div id="device-results-container" class="device grid sm:grid-cols-2 gap-4 hidden"></div>
             </div>
         </section>
 
@@ -639,7 +641,7 @@
     </footer>
 
     <!-- Scripts -->
-    <script src="script.js"></script>
+    <script type="module" src="script.js"></script>
 </body>
 
 </html>

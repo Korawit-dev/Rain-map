@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Management - Rain Map</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            background-color: #0f172a;
+            color: white;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        input {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 8px 12px;
+            border-radius: 8px;
+            color: white;
+            width: 100%;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: #22d3ee;
+            box-shadow: 0 0 10px rgba(34, 211, 238, 0.2);
+        }
+    </style>
+</head>
+
+<body class="p-4 md:p-10">
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-10 flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold text-cyan-400">Device Simulator</h1>
+                <p class="text-slate-400">จัดการข้อมูลและจำลองการส่งค่าอุปกรณ์</p>
+            </div>
+            <a href="index.html"
+                class="text-sm bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg transition-all flex items-center gap-2">
+                <i data-lucide="arrow-left" class="w-4 h-4"></i> กลับหน้าหลัก
+            </a>
+        </header>
+
+        <div class="grid md:grid-cols-2 gap-8">
+            <!-- ส่วนที่ 1: ส่งข้อมูล (Insert/Update) -->
+            <section class="glass-card p-6 rounded-2xl">
+                <h2 class="text-xl font-semibold mb-6 flex items-center gap-2 text-green-400">
+                    <i data-lucide="send" class="w-5 h-5"></i> ส่งข้อมูลอุปกรณ์
+                </h2>
+                <form id="deviceForm" class="space-y-4">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1 uppercase">Device ID</label>
+                        <input type="text" id="deviceId" placeholder="เช่น ESP8266_01" required>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1 uppercase">Temperature (°C)</label>
+                            <input type="number" step="0.1" id="temp" placeholder="25.5" required>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1 uppercase">Humidity (%)</label>
+                            <input type="number" id="hum" placeholder="60" required>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1 uppercase">Rain Value (Analog)</label>
+                            <input type="number" id="rain" placeholder="1024 (Dry)" required>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1 uppercase">Pressure</label>
+                            <input type="number" id="press" placeholder="1013">
+                        </div>
+                    </div>
+                    <button type="submit"
+                        class="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-3 rounded-xl transition-all mt-4">
+                        ส่งข้อมูลไปยัง Database
+                    </button>
+                </form>
+            </section>
+
+            <!-- ส่วนที่ 2: จัดการและลบข้อมูล (Delete) -->
+            <section class="glass-card p-6 rounded-2xl">
+                <h2 class="text-xl font-semibold mb-6 flex items-center gap-2 text-red-400">
+                    <i data-lucide="trash-2" class="w-5 h-5"></i> รายชื่ออุปกรณ์ในระบบ
+                </h2>
+                <div id="deviceList" class="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                    <p class="text-slate-500 text-center py-10">กำลังโหลดรายการอุปกรณ์...</p>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+        const firebaseConfig = {
+            apiKey: "AIzaSyCG7L8UH0UkhstpXc-rkmYAIxFQD4LplTQ",
+            authDomain: "project-rain-powerby-community.firebaseapp.com",
+            databaseURL: "https://project-rain-powerby-community-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "project-rain-powerby-community",
+            storageBucket: "project-rain-powerby-community.firebasestorage.app",
+            messagingSenderId: "360701221438",
+            appId: "1:360701221438:web:00737f642e34ce2aedcf6f",
+            measurementId: "G-PJPQYVLGL7"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // 1. จัดการการส่งข้อมูล (Set Data)
+        document.getElementById('deviceForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('deviceId').value;
+            const data = {
+                temperature: parseFloat(document.getElementById('temp').value),
+                humidity: parseInt(document.getElementById('hum').value),
+                rain: parseInt(document.getElementById('rain').value),
+                pressure: parseFloat(document.getElementById('press').value || 1013),
+                lastUpdate: new Date().toISOString()
+            };
+
+            try {
+                // บันทึกข้อมูลลง path devices/ID
+                await set(ref(db, 'devices/' + id), data);
+                showToast(`ส่งข้อมูล ${id} สำเร็จ!`, 'green');
+            } catch (err) {
+                showToast(`เกิดข้อผิดพลาด: ${err.message}`, 'red');
+            }
+        });
+
+        // 2. แสดงรายการอุปกรณ์และฟังก์ชันลบ (Read & Delete)
+        onValue(ref(db, 'devices'), (snapshot) => {
+            const listContainer = document.getElementById('deviceList');
+            const data = snapshot.val();
+            listContainer.innerHTML = '';
+
+            if (!data) {
+                listContainer.innerHTML = '<p class="text-slate-500 text-center py-10">ไม่มีอุปกรณ์ในระบบ</p>';
+                return;
+            }
+
+            Object.keys(data).forEach(id => {
+                const item = document.createElement('div');
+                item.className = 'flex justify-between items-center p-3 rounded-lg bg-white/5 border border-white/5 hover:border-white/20 transition-all';
+                item.innerHTML = `
+                    <div>
+                        <div class="font-semibold text-white">${id}</div>
+                        <div class="text-[10px] text-slate-400">Last seen: ${data[id].lastUpdate || 'Unknown'}</div>
+                    </div>
+                    <button onclick="deleteDevice('${id}')" class="p-2 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors">
+                        <i data-lucide="x-circle" class="w-5 h-5"></i>
+                    </button>
+                `;
+                listContainer.appendChild(item);
+            });
+            lucide.createIcons();
+        });
+
+        // ฟังก์ชันลบข้อมูล (ผูกกับ window เพื่อให้กดจาก HTML ได้)
+        window.deleteDevice = async (id) => {
+            if (confirm(`ยืนยันการลบอุปกรณ์ ${id} หรือไม่?\nข้อมูลจะหายไปจากฐานข้อมูลทันที`)) {
+                try {
+                    await remove(ref(db, 'devices/' + id));
+                    showToast(`ลบ ${id} แล้ว`, 'yellow');
+                } catch (err) {
+                    showToast(`ลบไม่สำเร็จ: ${err.message}`, 'red');
+                }
+            }
+        }
+
+        // แจ้งเตือนเล็กน้อย
+        function showToast(msg, color) {
+            const toast = document.createElement('div');
+            toast.className = `fixed bottom-5 right-5 px-6 py-3 rounded-xl bg-${color}-500 text-white shadow-xl animate-bounce`;
+            toast.innerText = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>
