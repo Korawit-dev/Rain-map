@@ -42,26 +42,55 @@ window.onload = function () {
 /**
  * ฟังก์ชันเชื่อมต่อและติดตามข้อมูลจาก Firebase แบบ Real-time
  * เมื่อข้อมูลมีการเปลี่ยนแปลงใน Firebase จะอัปเดต UI อัตโนมัติ
+ * 
+ * โครงสร้างข้อมูล: Communities > Users > Devices
  */
 function listenToFirebaseData() {
-    const dataRef = ref(db, 'devices');
+    const dataRef = ref(db, 'communities');
     const container = document.getElementById('device-results-container');
 
     onValue(dataRef, (snapshot) => {
-        const data = snapshot.val();
+        const communities = snapshot.val();
         
         // ล้างข้อมูลเก่า
         if (container) container.innerHTML = '';
 
-        if (data) {
-            // แปลง Object เป็น Array และสร้าง card แต่ละอุปกรณ์
-            Object.entries(data).forEach(([deviceId, deviceData]) => {
-                const cardData = formatFirebaseData(deviceId, deviceData);
-                createWeatherCard(cardData, 'device-results-container');
+        if (communities) {
+            let deviceCount = 0;
+            
+            // วนลูปชั้นที่ 1: Communities
+            Object.entries(communities).forEach(([communityId, communityData]) => {
+                
+                // ตรวจสอบว่ามี users หรือไม่
+                if (!communityData.users) return;
+                
+                // วนลูปชั้นที่ 2: Users
+                Object.entries(communityData.users).forEach(([userId, userData]) => {
+                    
+                    // ตรวจสอบว่ามี devices หรือไม่
+                    if (!userData.devices) return;
+                    
+                    // วนลูปชั้นที่ 3: Devices
+                    Object.entries(userData.devices).forEach(([deviceId, deviceData]) => {
+                        const cardData = formatFirebaseData(
+                            deviceId, 
+                            deviceData, 
+                            communityId, 
+                            userId
+                        );
+                        createWeatherCard(cardData, 'device-results-container');
+                        deviceCount++;
+                    });
+                });
             });
+            
+            // แสดงข้อความถ้าไม่พบอุปกรณ์
+            if (deviceCount === 0 && container) {
+                container.innerHTML = '<p class="col-span-full text-center text-slate-500 py-10">ไม่พบอุปกรณ์ที่เชื่อมต่อในขณะนี้</p>';
+            }
         } else {
             if (container) {
-                container.innerHTML = '<p class="col-span-full text-center text-slate-500 py-10">ไม่พบอุปกรณ์ที่เชื่อมต่อในขณะนี้</p>';
+                container.innerHTML = '<p class="col-span-full text-center text-slate-500 py-10">ไม่พบข้อมูล Community</p>';
             }
         }
     });
@@ -71,23 +100,34 @@ function listenToFirebaseData() {
  * แปลงข้อมูลจาก Firebase ให้เป็นรูปแบบมาตรฐานสำหรับสร้าง Card
  * @param {string} deviceId - รหัสอุปกรณ์
  * @param {Object} data - ข้อมูลจาก Firebase
+ * @param {string} communityId - รหัส Community
+ * @param {string} userId - รหัส User
  * @returns {Object} ข้อมูลที่จัดรูปแบบแล้ว
  */
-function formatFirebaseData(deviceId, data) {
-    const isRaining = data.rain < 500; // ค่า Analog < 500 คือฝนตก
+function formatFirebaseData(deviceId, data, communityId, userId) {
+    // ตรวจสอบสถานะฝน (rain เป็น boolean, ถ้าไม่มีข้อมูลถือว่าไม่ฝน)
+    const isRaining = data.rain === true;
+    
+    // ใช้ชื่อจาก name field ถ้ามี, ไม่งั้นใช้ deviceId
+    const deviceName = data.name || deviceId;
     
     return {
         id: deviceId,
-        title: deviceId,
-        subtitle: 'Firebase Device',
-        temperature: data.temperature || '--',
-        humidity: data.humidity || '--',
-        rain: isRaining ? 'Raining' : 'Dry',
-        rainValue: data.rain,
-        pressure: null,
+        title: deviceName,
+        subtitle: `${communityId} • ${userId}`,
+        temperature: data.temp !== undefined && data.temp !== null ? data.temp : '--',
+        humidity: data.hum !== undefined && data.hum !== null ? data.hum : '--',
+        rain: data.rain !== undefined ? (isRaining ? 'Raining' : 'Dry') : '--',
+        rainValue: isRaining ? 1 : 0,
+        pressure: data.press !== undefined && data.press !== null ? data.press : null,
+        latitude: data.lat !== undefined && data.lat !== null ? data.lat : null,
+        longitude: data.lon !== undefined && data.lon !== null ? data.lon : null,
+        lastUpdate: data.lastUpdate || null,
         isRaining: isRaining,
         isOnline: true,
-        source: 'firebase'
+        source: 'firebase',
+        communityId: communityId,
+        userId: userId
     };
 }
 
@@ -244,6 +284,8 @@ async function fetchWeatherData() {
  * @param {string} data.rain - สถานะฝน
  * @param {number} data.rainValue - ค่าฝน (สำหรับตรวจสอบ)
  * @param {number} data.pressure - ความกดอากาศ (optional)
+ * @param {number} data.latitude - ละติจูด (optional)
+ * @param {number} data.longitude - ลองจิจูด (optional)
  * @param {boolean} data.isRaining - กำลังฝนตกหรือไม่
  * @param {boolean} data.isOnline - สถานะออนไลน์
  * @param {string} data.source - แหล่งข้อมูล ('firebase' หรือ 'open-meteo')
@@ -260,6 +302,13 @@ function createWeatherCard(data, containerId) {
         : 'bg-orange-500/20 text-orange-400';
     const glowColor = data.isRaining ? 'bg-blue-500/10' : 'bg-orange-500/10';
 
+    // ตรวจสอบว่ามีพิกัดหรือไม่
+    const hasCoordinates = data.latitude !== null && data.longitude !== null && 
+                          data.latitude !== undefined && data.longitude !== undefined;
+    
+    // ตรวจสอบว่ามีข้อมูล pressure หรือไม่
+    const hasPressure = data.pressure !== null && data.pressure !== undefined;
+
     // สร้าง HTML สำหรับ Card
     const cardHTML = `
         <div class="glass-card rounded-2xl p-6 relative overflow-hidden group animate-fade-in-up">
@@ -267,13 +316,17 @@ function createWeatherCard(data, containerId) {
             <div class="absolute -right-6 -top-6 w-24 h-24 rounded-full ${glowColor} blur-2xl group-hover:blur-3xl transition-all"></div>
             
             <!-- Header -->
-            <div class="flex justify-between items-start mb-6 relative z-10">
-                <div>
+            <div class="flex justify-between items-start mb-4 relative z-10">
+                <div class="flex-1">
                     <h3 class="text-xl font-bold text-white group-hover:text-cyan-400 transition-colors flex items-center gap-2">
-                        <i data-lucide="${data.source === 'firebase' ? 'cpu' : 'map-pin'}" class="w-4 h-4 text-slate-500"></i> 
+                        <i data-lucide="${data.source === 'firebase' ? 'cpu' : 'map-pin'}" class="w-4 h-4 text-cyan-400"></i> 
                         ${data.title}
                     </h3>
-                    <p class="text-xs text-slate-400 font-mono mt-1 ml-6">${data.subtitle}</p>
+                    ${data.source === 'firebase' ? `
+                        <p class="text-xs text-slate-400 mt-1 ml-6">${data.subtitle}</p>
+                    ` : `
+                        <p class="text-xs text-slate-400 font-mono mt-1 ml-6">${data.subtitle}</p>
+                    `}
                 </div>
                 <div class="flex items-center gap-2">
                     ${data.isOnline ? `
@@ -289,7 +342,7 @@ function createWeatherCard(data, containerId) {
             </div>
             
             <!-- Temperature Display -->
-            <div class="flex items-end space-x-3 mb-8 relative z-10">
+            <div class="flex items-end space-x-3 mb-6 relative z-10">
                 <span class="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-white to-slate-400">
                     ${data.temperature}°
                 </span>
@@ -304,7 +357,7 @@ function createWeatherCard(data, containerId) {
                         <i data-lucide="droplets" class="w-5 h-5"></i>
                     </div>
                     <p class="text-[10px] text-slate-400 uppercase tracking-wider">Humidity</p>
-                    <p class="font-bold text-slate-200">${data.humidity}%</p>
+                    <p class="font-bold text-slate-200">${data.humidity !== '--' ? data.humidity + '%' : '--'}</p>
                 </div>
                 
                 <!-- Rain Status -->
@@ -313,18 +366,28 @@ function createWeatherCard(data, containerId) {
                         <i data-lucide="cloud-rain" class="w-5 h-5"></i>
                     </div>
                     <p class="text-[10px] text-slate-400 uppercase tracking-wider">Rain</p>
-                    <p class="font-bold text-slate-200">${data.rain}</p>
+                    <p class="font-bold ${data.rain === 'Raining' ? 'text-blue-400' : 'text-slate-200'}">${data.rain}</p>
                 </div>
                 
-                <!-- Pressure (ถ้ามี) -->
+                <!-- Pressure -->
                 <div class="text-center p-2 rounded-lg hover:bg-white/5 transition-colors">
                     <div class="flex justify-center text-purple-400 mb-2">
                         <i data-lucide="gauge" class="w-5 h-5"></i>
                     </div>
                     <p class="text-[10px] text-slate-400 uppercase tracking-wider">Pressure</p>
-                    <p class="font-bold text-slate-200">${data.pressure !== null ? data.pressure : '--'}</p>
+                    <p class="font-bold text-slate-200">${hasPressure ? data.pressure + ' hPa' : '--'}</p>
                 </div>
             </div>
+
+            <!-- Coordinates (แสดงเฉพาะเมื่อมีข้อมูล) -->
+            ${hasCoordinates ? `
+                <div class="mt-4 pt-4 border-t border-white/10 relative z-10">
+                    <div class="flex items-center justify-center gap-2 text-xs text-slate-400 font-mono">
+                        <i data-lucide="map-pin" class="w-3 h-3"></i>
+                        <span>${parseFloat(data.latitude).toFixed(4)}, ${parseFloat(data.longitude).toFixed(4)}</span>
+                    </div>
+                </div>
+            ` : ''}
         </div>
     `;
 
