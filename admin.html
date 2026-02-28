@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3-Level Database Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .tree-line {
+            position: relative;
+            padding-left: 1rem;
+        }
+        .tree-line::before {
+            content: '';
+            position: absolute;
+            left: 0.4rem;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        input, select {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 6px 10px;
+            border-radius: 8px;
+            color: white;
+            width: 100%;
+            outline: none;
+            font-size: 0.875rem;
+        }
+        input:focus { border-color: #22d3ee; }
+        .compact-label {
+            display: block;
+            text-transform: uppercase;
+            font-size: 0.65rem;
+            color: #94a3b8;
+            margin-bottom: 2px;
+            font-weight: 600;
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    </style>
+</head>
+<body class="p-2 md:p-6 min-h-screen">
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-6 flex justify-between items-end border-b border-white/10 pb-4">
+            <div>
+                <h1 class="text-2xl font-bold text-cyan-400 flex items-center gap-2">
+                    <i data-lucide="database" class="w-6 h-6"></i> Manager Pro
+                </h1>
+                <p class="text-slate-500 text-xs">ระบบจัดการข้อมูล 3 ระดับ (Community > User > Device)</p>
+            </div>
+            <span id="loadingState" class="text-[10px] text-slate-500 uppercase tracking-widest">กำลังเชื่อมต่อ...</span>
+            <a class="text-[20px] text-slate-500 uppercase tracking-widest" href="./index.html">Back</a>
+        </header>
+
+        <div class="grid lg:grid-cols-5 gap-6">
+            <!-- คอลัมน์ซ้าย: การกรอกข้อมูล -->
+            <div class="lg:col-span-2 space-y-4">
+                <section class="glass-card p-4 rounded-xl shadow-xl">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="font-semibold text-emerald-400 flex items-center gap-2">
+                            <i data-lucide="plus-circle" class="w-4 h-4"></i> เพิ่ม/แก้ไข ข้อมูล
+                        </h2>
+                        <select id="modeSelector" onchange="toggleMode()" class="w-auto py-1 text-[10px] bg-slate-800 border-none">
+                            <option value="single">เพิ่มทีละขั้น (Normal)</option>
+                            <option value="quick">เพิ่มทีเดียว 3 ระดับ (Quick)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="space-y-3">
+                        <div id="singleModeUI" class="space-y-3">
+                            <div>
+                                <label class="compact-label">เลือกระดับที่จะเพิ่ม</label>
+                                <select id="targetLevel" onchange="updateFormUI()">
+                                    <option value="community">Community</option>
+                                    <option value="user">User</option>
+                                    <option value="device">Device</option>
+                                </select>
+                            </div>
+                            <div id="communitySelectorWrap" class="hidden">
+                                <label class="compact-label">Community ต้นทาง</label>
+                                <select id="parentCommunityId"></select>
+                            </div>
+                            <div id="userSelectorWrap" class="hidden">
+                                <label class="compact-label">User ต้นทาง</label>
+                                <select id="parentUserId"></select>
+                            </div>
+                            <div>
+                                <label id="nameLabel" class="compact-label">ID / ชื่อ</label>
+                                <input type="text" id="nodeName" placeholder="ระบุชื่อหรือรหัส">
+                            </div>
+                        </div>
+
+                        <div id="quickModeUI" class="hidden space-y-3 border-l-2 border-cyan-500/30 pl-3 bg-white/5 p-2 rounded">
+                            <div>
+                                <label class="compact-label">Community ID</label>
+                                <input type="text" id="quickCom" placeholder="สร้าง Community ใหม่">
+                            </div>
+                            <div>
+                                <label class="compact-label">User ID</label>
+                                <input type="text" id="quickUser" placeholder="สร้าง User ใหม่">
+                            </div>
+                            <div>
+                                <label class="compact-label">Device ID</label>
+                                <input type="text" id="quickDev" placeholder="รหัสอุปกรณ์ (deviceId)">
+                            </div>
+                        </div>
+
+                        <!-- ส่วนข้อมูลเซนเซอร์ 7 ฟิลด์ -->
+                        <div id="deviceDataFields" class="hidden pt-3 border-t border-white/10 grid grid-cols-2 gap-2">
+                            <div class="col-span-2"><label class="compact-label text-cyan-400">ข้อมูลเซนเซอร์ (7 รายการ)</label></div>
+                            <div>
+                                <label class="compact-label">อุณหภูมิ (temp)</label>
+                                <input type="number" id="v_temp" step="0.1" placeholder="°C">
+                            </div>
+                            <div>
+                                <label class="compact-label">ความกดอากาศ (press)</label>
+                                <input type="number" id="v_press" step="0.1" placeholder="hPa">
+                            </div>
+                            <div>
+                                <label class="compact-label">ความชื้น (hum)</label>
+                                <input type="number" id="v_hum" placeholder="%">
+                            </div>
+                            <div>
+                                <label class="compact-label">สถานะฝน (rain)</label>
+                                <select id="v_rain">
+                                    <option value="false">แห้ง (Dry)</option>
+                                    <option value="true">ฝนตก (Raining)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="compact-label">ละติจูด (lat)</label>
+                                <input type="number" id="v_lat" step="0.000001" placeholder="13.xxxx">
+                            </div>
+                            <div>
+                                <label class="compact-label">ลองจิจูด (lon)</label>
+                                <input type="number" id="v_lon" step="0.000001" placeholder="100.xxxx">
+                            </div>
+                        </div>
+
+                        <button onclick="handleSubmit()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 mt-2 text-sm">
+                            <i data-lucide="save" class="w-4 h-4"></i> บันทึกข้อมูลเข้า Firebase
+                        </button>
+                    </div>
+                </section>
+                
+                <div class="text-[10px] text-slate-400 p-2 text-center italic">
+                    ข้อมูลจะถูกเก็บเป็น Communities > [ID] > Users > [ID] > Devices > [deviceId]
+                </div>
+            </div>
+
+            <!-- คอลัมน์ขวา: รายการข้อมูลในระบบ -->
+            <div class="lg:col-span-3">
+                <section class="glass-card p-4 rounded-xl h-full flex flex-col min-h-[500px]">
+                    <h2 class="font-semibold flex items-center gap-2 text-cyan-400 mb-4 border-b border-white/10 pb-2">
+                        <i data-lucide="layout-list" class="w-4 h-4"></i> โครงสร้างข้อมูลปัจจุบัน
+                    </h2>
+                    <div id="treeContainer" class="flex-grow overflow-y-auto space-y-1 text-xs">
+                        <!-- รายการจะถูกสร้างที่นี่ -->
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-4 right-4 translate-y-20 opacity-0 transition-all duration-300 px-4 py-2 rounded-lg text-white shadow-2xl z-50 text-xs"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, set, onValue, remove, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCG7L8UH0UkhstpXc-rkmYAIxFQD4LplTQ",
+            authDomain: "project-rain-powerby-community.firebaseapp.com",
+            databaseURL: "https://project-rain-powerby-community-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "project-rain-powerby-community",
+            storageBucket: "project-rain-powerby-community.firebasestorage.app",
+            messagingSenderId: "360701221438",
+            appId: "1:360701221438:web:00737f642e34ce2aedcf6f"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const rootRef = ref(db, 'communities');
+
+        let rawData = {};
+
+        // --- ระบบสลับโหมดการทำงาน ---
+        window.toggleMode = () => {
+            const mode = document.getElementById('modeSelector').value;
+            document.getElementById('singleModeUI').classList.toggle('hidden', mode === 'quick');
+            document.getElementById('quickModeUI').classList.toggle('hidden', mode === 'single');
+            updateFormUI();
+        };
+
+        window.updateFormUI = () => {
+            const mode = document.getElementById('modeSelector').value;
+            const level = document.getElementById('targetLevel').value;
+            
+            if (mode === 'quick') {
+                document.getElementById('deviceDataFields').classList.remove('hidden');
+                return;
+            }
+
+            document.getElementById('communitySelectorWrap').classList.toggle('hidden', level === 'community');
+            document.getElementById('userSelectorWrap').classList.toggle('hidden', level !== 'device');
+            document.getElementById('deviceDataFields').classList.toggle('hidden', level !== 'device');
+            
+            const nameLabel = document.getElementById('nameLabel');
+            if (level === 'community') nameLabel.innerText = "ชื่อ Community";
+            else if (level === 'user') nameLabel.innerText = "User ID";
+            else if (level === 'device') nameLabel.innerText = "Device ID (deviceId)";
+
+            populateSelectors();
+        };
+
+        const populateSelectors = () => {
+            const comSelect = document.getElementById('parentCommunityId');
+            const userSelect = document.getElementById('parentUserId');
+            
+            const comIds = Object.keys(rawData);
+            comSelect.innerHTML = comIds.map(id => `<option value="${id}">${id}</option>`).join('') || '<option value="">ไม่มีข้อมูล</option>';
+            
+            if (comSelect.value && rawData[comSelect.value]) {
+                const users = rawData[comSelect.value].users || {};
+                const userIds = Object.keys(users);
+                userSelect.innerHTML = userIds.map(id => `<option value="${id}">${id}</option>`).join('') || '<option value="">ไม่มีข้อมูล</option>';
+            } else {
+                userSelect.innerHTML = '<option value="">ไม่มีข้อมูล</option>';
+            }
+        };
+
+        document.getElementById('parentCommunityId').addEventListener('change', populateSelectors);
+
+        // --- การส่งข้อมูลเข้า Firebase ---
+        window.handleSubmit = async () => {
+            const mode = document.getElementById('modeSelector').value;
+            const time = new Date().toLocaleString('th-TH');
+            
+            // เตรียมข้อมูล 7 ฟิลด์หลัก
+            const sensorData = {
+                temp: parseFloat(document.getElementById('v_temp').value) || 0,
+                press: parseFloat(document.getElementById('v_press').value) || 0,
+                hum: parseFloat(document.getElementById('v_hum').value) || 0,
+                rain: document.getElementById('v_rain').value === "true",
+                lat: parseFloat(document.getElementById('v_lat').value) || 0,
+                lon: parseFloat(document.getElementById('v_lon').value) || 0,
+                lastUpdate: time
+            };
+
+            try {
+                if (mode === 'quick') {
+                    const c = document.getElementById('quickCom').value.trim();
+                    const u = document.getElementById('quickUser').value.trim();
+                    const d = document.getElementById('quickDev').value.trim();
+                    if (!c || !u || !d) return showToast("กรุณากรอก ID ให้ครบทุกระดับ", "orange");
+
+                    const updates = {};
+                    updates[`communities/${c}/name`] = c;
+                    updates[`communities/${c}/users/${u}/name`] = u;
+                    updates[`communities/${c}/users/${u}/devices/${d}`] = { ...sensorData, deviceId: d };
+
+                    await update(ref(db), updates);
+                    showToast("เพิ่มข้อมูลทั้ง 3 ระดับสำเร็จ!", "emerald");
+                } else {
+                    const level = document.getElementById('targetLevel').value;
+                    const id = document.getElementById('nodeName').value.trim();
+                    if (!id) return showToast("กรุณาระบุ ID", "orange");
+
+                    let path = "";
+                    let payload = { name: id, lastUpdate: time };
+
+                    if (level === 'community') path = `communities/${id}`;
+                    else if (level === 'user') {
+                        const comId = document.getElementById('parentCommunityId').value;
+                        if(!comId) return showToast("กรุณาเลือก Community", "orange");
+                        path = `communities/${comId}/users/${id}`;
+                    } else if (level === 'device') {
+                        const comId = document.getElementById('parentCommunityId').value;
+                        const userId = document.getElementById('parentUserId').value;
+                        if(!comId || !userId) return showToast("กรุณาเลือก Community และ User", "orange");
+                        path = `communities/${comId}/users/${userId}/devices/${id}`;
+                        payload = { ...sensorData, deviceId: id };
+                    }
+                    await update(ref(db, path), payload);
+                    showToast(`บันทึก ${id} สำเร็จ`, "emerald");
+                }
+            } catch (e) { showToast("เกิดข้อผิดพลาด: " + e.message, "red"); }
+        };
+
+        window.deleteNode = async (path) => {
+            if (confirm("ยืนยันการลบข้อมูลนี้?")) {
+                try { await remove(ref(db, path)); showToast("ลบข้อมูลสำเร็จ", "amber"); }
+                catch (e) { showToast(e.message, "red"); }
+            }
+        };
+
+        // --- การแสดงผล Tree View ---
+        onValue(rootRef, (snap) => {
+            rawData = snap.val() || {};
+            renderTree(rawData);
+            populateSelectors();
+            document.getElementById('loadingState').innerText = "เชื่อมต่ออยู่ (ONLINE)";
+            lucide.createIcons();
+        });
+
+        function renderTree(data) {
+            const container = document.getElementById('treeContainer');
+            container.innerHTML = "";
+            
+            if (Object.keys(data).length === 0) {
+                container.innerHTML = `<div class="text-slate-500 p-4 text-center">ไม่มีข้อมูลในฐานข้อมูล</div>`;
+                return;
+            }
+
+            Object.entries(data).forEach(([cId, cData]) => {
+                // ระดับ Community
+                container.appendChild(createNodeUI(cId, 'community', `communities/${cId}`));
+                
+                const uList = document.createElement('div');
+                uList.className = "tree-line ml-3";
+                
+                Object.entries(cData.users || {}).forEach(([uId, uData]) => {
+                    // ระดับ User
+                    uList.appendChild(createNodeUI(uId, 'user', `communities/${cId}/users/${uId}`));
+                    
+                    const dList = document.createElement('div');
+                    dList.className = "tree-line ml-3";
+                    
+                    Object.entries(uData.devices || {}).forEach(([dId, dData]) => {
+                        // ระดับ Device พร้อมแสดงเซนเซอร์ 7 อย่าง
+                        dList.appendChild(createNodeUI(dId, 'device', `communities/${cId}/users/${uId}/devices/${dId}`, dData));
+                    });
+                    uList.appendChild(dList);
+                });
+                container.appendChild(uList);
+            });
+        }
+
+        function createNodeUI(id, type, path, data = null) {
+            const div = document.createElement('div');
+            div.className = "flex flex-col mb-1 group";
+            
+            let icon = "home", color = "text-emerald-400", extraInfo = "";
+            
+            if (type === 'user') { icon = "user"; color = "text-cyan-400"; }
+            if (type === 'device' && data) { 
+                icon = "cpu"; 
+                color = "text-amber-400"; 
+                // แสดงข้อมูล 7 ฟิลด์แบบ Compact
+                extraInfo = `
+                    <div class="grid grid-cols-4 gap-1 mt-1 ml-6 text-[9px] text-slate-400 bg-white/5 p-1 rounded">
+                        <span title="Temp">🌡️ ${data.temp}°C</span>
+                        <span title="Hum">💧 ${data.hum}%</span>
+                        <span title="Press">🌀 ${data.press}</span>
+                        <span title="Rain">${data.rain ? '🌧️ ฝนตก' : '☀️ แห้ง'}</span>
+                        <span class="col-span-2">📍 ${data.lat}, ${data.lon}</span>
+                        <span class="col-span-2 text-right">🆔 ${data.deviceId}</span>
+                    </div>
+                `;
+            }
+
+            div.innerHTML = `
+                <div class="flex items-center justify-between p-1 hover:bg-white/10 rounded transition-colors cursor-default">
+                    <div class="flex items-center gap-2 truncate">
+                        <i data-lucide="${icon}" class="w-3.5 h-3.5 ${color}"></i>
+                        <span class="font-medium">${id}</span>
+                        ${type === 'device' ? `<span class="text-[8px] bg-amber-500/20 px-1 rounded text-amber-500">online</span>` : ''}
+                    </div>
+                    <button onclick="deleteNode('${path}')" class="opacity-0 group-hover:opacity-100 text-red-400 hover:bg-red-500/20 p-1 rounded transition-all">
+                        <i data-lucide="trash-2" class="w-3 h-3"></i>
+                    </button>
+                </div>
+                ${extraInfo}
+            `;
+            return div;
+        }
+
+        function showToast(m, color) {
+            const t = document.getElementById('toast');
+            t.innerText = m;
+            t.className = `fixed bottom-4 right-4 px-4 py-2 rounded-lg text-white shadow-2xl z-50 transition-all duration-300 bg-${color}-600 opacity-100 translate-y-0`;
+            setTimeout(() => { t.classList.add('opacity-0', 'translate-y-20'); }, 3000);
+        }
+
+        updateFormUI();
+        lucide.createIcons();
+    </script>
+</body>
+</html>
